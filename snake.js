@@ -56,27 +56,76 @@ function setRight(val) {
     }
 }
 
+function setTurbo(turbo) {
+    // The +1 is necessary since the queue excludes the current position.
+    snakeVelocity = NODE_ANGLE * 2 / (NODE_QUEUE_SIZE + 1) * (turbo ? 1.75 : 1.0);
+}
+
 function togglePause() {
     if (PAUSED) {
         PAUSED = false;
-        delBanners();
+        document.getElementById('paused').style = 'display:none';
         window.requestAnimationFrame(update);
     } else {
         PAUSED = true;
         document.getElementById('paused').style = 'display:block';
     }
 }
+function handlePAUSE(e) {
+    e.preventDefault();
+    if (e.code == "Space") togglePause();
+}
+window.addEventListener('keydown', handlePAUSE);
+
+
+function doPowerUP(e) {
+    if (PAUSED || stopped) return;
+    let count = 50;
+    const interval = setInterval(() => {
+            incrementScore();
+            addSnakeNode();
+            if (--count <= 0) clearInterval(interval);
+        }, 50);
+
+    // set and unset disabled
+    this.disabled = true;
+    setInterval(() => {
+        this.disabled=false
+    }, 2250)
+    e.preventDefault();
+}
+document.querySelector("#PUP").addEventListener("click", doPowerUP);
+
+/* "toggle direction button" stuff */
+let orDir = direction;
+let toggledTheDir = document.getElementById("fixDir").checked; //interface controls the visual-default
+function toggleDir() {
+    if (toggledTheDir) {
+        orDir = direction;
+        direction = 0;
+    } else {
+        direction = orDir;
+    }
+    document.getElementById("show-dir1").innerText = orDir.toFixed(1);
+    document.getElementById("show-dir4").innerText = orDir.toFixed(4);
+}
+document.querySelector("#fixDir").addEventListener("input", function (e) {
+    toggledTheDir = this.checked;
+    toggleDir();
+})
+
 
 window.addEventListener('keydown', function(e) {
     if (e.key == "ArrowLeft"  || e.code == "KeyA") setLeft(true);
     if (e.key == "ArrowRight" || e.code == "KeyD") setRight(true);
-
-    if (e.code == "Space") togglePause();
+    if (e.key == "ArrowUp" || e.code == "KeyW") setTurbo(true);
 });
 
 window.addEventListener('keyup', function(e) {
     if (e.key == "ArrowLeft"  || e.code == "KeyA") setLeft(false);
     if (e.key == "ArrowRight" || e.code == "KeyD") setRight(false);
+    if (e.key == "ArrowUp" || e.code == "KeyW") setTurbo(false);
+
     if (e.code == "KeyT") document.getElementById("fixDir").click();
 });
 
@@ -117,40 +166,6 @@ document.querySelector("#refresh").addEventListener("click", (e) => {
     window.location.reload(true);
 })
 
-let orDir = direction;
-let toggledTheDir = document.getElementById("fixDir"); //interface controls the visual-default
-function toggleDir() {
-    if (toggledTheDir) {
-        orDir = direction;
-        direction = 0;
-    } else {
-        direction = orDir;
-    }
-    document.getElementById("show-dir1").innerText = orDir.toFixed(1);
-    document.getElementById("show-dir4").innerText = orDir.toFixed(4);
-}
-document.querySelector("#fixDir").addEventListener("input", function (e) {
-    toggledTheDir = this.checked;
-    toggleDir();
-})
-
-document.querySelector("#PUP").addEventListener("click", function (e) {
-    const augment = function(count, delay) {
-        const interval = setInterval(() => {
-            incrementScore();
-            addSnakeNode();
-            if (--count <= 0) clearInterval(interval);
-        }, delay);
-        return interval;
-    };
-    augment(50, 50);
-    // set and unset disabled
-    this.disabled = true;
-    setInterval(() => {
-        this.disabled=false
-    }, 2250)
-    e.preventDefault();
-})
 
 function regeneratePellet() {
     pellet = pointFromSpherical(Math.random() * Math.PI * 2, Math.random() * Math.PI);
@@ -411,7 +426,7 @@ function checkCollisions() {
     for (var i = 2; i < snake.length; i++) {
          if (collision(snake[0], snake[i])) {
              showEnd();
-             leaderboard.setScore(score);
+             // leaderboard.setScore(score);
              return;
          }
     }
@@ -426,11 +441,7 @@ function showEnd() {
     // document.getElementsByTagName('body')[0].style = 'background: #E8E8E8';
     document.getElementById('gg').style = 'display:block';
     stopped = true;
-}
-
-function delBanners() {
-    document.getElementById('gg').style = 'display:none';
-    document.getElementById('paused').style = 'display:none';
+    window.removeEventListener('keydown', handlePAUSE);
 }
 
 init();
