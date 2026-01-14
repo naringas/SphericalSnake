@@ -31,6 +31,7 @@ var direction = STARTING_DIRECTION;
 var focalLength = 500;
 
 var leftDown, rightDown;
+var slowDown;
 
 var score = 0;
 
@@ -57,8 +58,22 @@ function setRight(val) {
 }
 
 function setTurbo(turbo) {
+    /* Controller UI inconsitensy RISES:
+    TODO: expose graphic of Turbo, Q, and E buttons. and slowdown too.... */
     // The +1 is necessary since the queue excludes the current position.
     snakeVelocity = NODE_ANGLE * 2 / (NODE_QUEUE_SIZE + 1) * (turbo ? 1.75 : 1.0);
+}
+
+function toggleHold(e) {
+    if (e.code == "KeyE") document.getElementById("fixDir").click();
+}
+function setSlow(val) {
+    slowDown = val;
+    if (slowDown) {
+        window.addEventListener('keydown', toggleHold);
+    } else {
+        window.removeEventListener('keydown', toggleHold);
+    }
 }
 
 function togglePause() {
@@ -102,7 +117,7 @@ let toggledTheDir = document.getElementById("fixDir").checked; //interface contr
 function toggleDir() {
     if (toggledTheDir) {
         orDir = direction;
-        direction = 0;
+        direction = 0;  //East
     } else {
         direction = orDir;
     }
@@ -120,14 +135,25 @@ window.addEventListener('keydown', function(e) {
     if (e.key == "ArrowLeft"  || e.code == "KeyA") setLeft(true);
     if (e.key == "ArrowRight" || e.code == "KeyD") setRight(true);
     if (e.key == "ArrowUp" || e.code == "KeyW") setTurbo(true);
+    if (e.key == "ArrowDown" || e.code == "KeyS") setSlow(true);
 });
 
 window.addEventListener('keyup', function(e) {
     if (e.key == "ArrowLeft"  || e.code == "KeyA") setLeft(false);
     if (e.key == "ArrowRight" || e.code == "KeyD") setRight(false);
     if (e.key == "ArrowUp" || e.code == "KeyW") setTurbo(false);
+    if (e.key == "ArrowDown" || e.code == "KeyS") setSlow(false);
 
     if (e.code == "KeyT") document.getElementById("fixDir").click();
+    /*
+    // TODO: mirror of "E" toggle zero (east) direction functionalty. with a
+    // self-determined not-east; details TBD....
+
+    just the UI consequences give me a headache (make my head spin)
+
+
+    if (e.code == "KeyQ") document.getElementById("fixDir").click();
+    */
     if (e.code == "KeyE") document.getElementById("fixDir").click();
 });
 
@@ -163,10 +189,11 @@ btnMoveRight.addEventListener("contextmenu", function (e) {
     e.preventDefault();
 });
 
-document.querySelector("#refresh").addEventListener("click", (e) => {
+function restartGame (e) {
     e.preventDefault();
     window.location.reload(true);
-})
+}
+document.querySelector("#refresh").addEventListener("click", restartGame)
 
 
 function regeneratePellet() {
