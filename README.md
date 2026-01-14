@@ -2,7 +2,7 @@
 
 Based on original "Snake game on a sphere" by Kevin Albertson (c) 2016. MIT Licensed. this is my forked version of the necessary "MIT copypasta disclaimer" requirement.
 
-![Spherical Snake Gameplay](./gameplay.webm)
+![Spherical Snake Gameplay](./gameplay2.gif)
 
 ### incomplete summary of changes
 
