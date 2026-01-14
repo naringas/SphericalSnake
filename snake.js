@@ -285,14 +285,14 @@ function update() {
     render();
     if (PAUSED) {
         //block the animationframe
-        return
+        return;
     } else {
         window.requestAnimationFrame(update);
     }
 }
 
 // Radius is given in angle and is drawn based on depth.
-function drawPoint(point, radius, red) {
+function drawPoint(point, radius, red, blue=0) {
     var p = copyPoint(point);
 
     // Translate so that sphere origin is (0, 0, 2).
@@ -315,7 +315,7 @@ function drawPoint(point, radius, red) {
     var alpha = 1 - (p.z - 1) / 2;
     // Color based on depth.
     var depthColor = 255 - Math.floor((p.z - 1) / 2 * 255);
-    ctx.fillStyle = "rgba(" + red + ", 0, " + depthColor + ", " + alpha + ")";
+    ctx.fillStyle = "rgba(" + red + ", " + blue + ", " + depthColor + ", " + alpha + ")";
     ctx.arc(p.x, p.y, radius, 0, Math.PI * 2);
     ctx.fill();
 }
@@ -326,7 +326,11 @@ function render() {
         drawPoint(points[i], 1 / 250, 0);
     }
     for (var i = 0; i < snake.length; i++) {
-        drawPoint(snake[i], NODE_ANGLE, 120);
+        let blue;
+        if (i < 7) blue = 80;
+        else if (i == 7) blue = 180;
+        else blue = 0;
+        drawPoint(snake[i], NODE_ANGLE, 120, blue);
     }
 
     drawPoint(pellet, NODE_ANGLE, 0);
@@ -423,8 +427,8 @@ function collision(a,b) {
     return dist < collisionDistance; 
 }
 
-function checkCollisions() {
-    for (var i = 2; i < snake.length; i++) {
+function checkCollisions(skip = 6) {
+    for (var i = 2 + skip; i < snake.length; i++) {
          if (collision(snake[0], snake[i])) {
              showEnd();
              // leaderboard.setScore(score);
