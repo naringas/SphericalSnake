@@ -128,6 +128,7 @@ window.addEventListener('keyup', function(e) {
     if (e.key == "ArrowUp" || e.code == "KeyW") setTurbo(false);
 
     if (e.code == "KeyT") document.getElementById("fixDir").click();
+    if (e.code == "KeyE") document.getElementById("fixDir").click();
 });
 
 btnMoveLeft.addEventListener("pointerdown", function (e) {
@@ -319,13 +320,27 @@ function drawPoint(point, radius, red, blue=0) {
     ctx.arc(p.x, p.y, radius, 0, Math.PI * 2);
     ctx.fill();
 }
-
+function renderAngleDir(direction_, strokeStyle="#FFF") {
+    // `green` means "are we drawing the toggle stored angle at `orDir` or not?"
+    ctx.beginPath();
+    ctx.moveTo(centerX, centerY);
+    var r = NODE_ANGLE / 2 * focalLength * 2.2;
+    ctx.lineTo(centerX + Math.cos(direction_) * r,
+        centerY + Math.sin(direction_) * r);
+    ctx.strokeStyle = strokeStyle;//(!green) ? "#FFF" : (direction_ ? "#FF1493");  //lazy hackass logic
+    ctx.lineWidth = 3;// (!green) ? 3 : 1;
+    ctx.stroke();
+}
 function render() {
     ctx.clearRect(0, 0, width, height);
     for(var i = 0; i < points.length; i++) {
         drawPoint(points[i], 1 / 250, 0);
     }
     for (var i = 0; i < snake.length; i++) {
+        /* the first 6 andor 7 nodes don't self-collide.
+        this fixes the instakills caused by the toggle-fix toggle control.
+        this 7 (strict less than) pellets get a blue hue.
+        and the last one ("the neck") gets marked specially */
         let blue;
         if (i < 7) blue = 80;
         else if (i == 7) blue = 180;
@@ -336,14 +351,9 @@ function render() {
     drawPoint(pellet, NODE_ANGLE, 0);
 
     // Draw angle.
-    ctx.beginPath();
-    ctx.moveTo(centerX, centerY);
-    var r = NODE_ANGLE / 2 * focalLength * 2.2;
-    ctx.lineTo(centerX + Math.cos(direction) * r,
-        centerY + Math.sin(direction) * r);
-    ctx.strokeStyle = "#FFF";
-    ctx.lineWidth = 3;
-    ctx.stroke();
+    renderAngleDir(direction);
+    //draw "next" toggle/untoggle original-Direction angle
+    renderAngleDir(orDir, (toggledTheDir ? "#51FF78" : "#FF7851"));
 
     ctx.lineWidth = 1;
 
