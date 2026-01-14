@@ -65,14 +65,15 @@ function setTurbo(turbo) {
 }
 
 function toggleHold(e) {
-    if (e.code == "KeyE") document.getElementById("fixDir").click();
+
 }
 function setSlow(val) {
     slowDown = val;
     if (slowDown) {
-        window.addEventListener('keydown', toggleHold);
+        document.getElementById("fixDir").click();
+        // window.addEventListener('keydown', toggleHold);
     } else {
-        window.removeEventListener('keydown', toggleHold);
+        // window.removeEventListener('keydown', toggleHold);
     }
 }
 
@@ -135,7 +136,9 @@ window.addEventListener('keydown', function(e) {
     if (e.key == "ArrowLeft"  || e.code == "KeyA") setLeft(true);
     if (e.key == "ArrowRight" || e.code == "KeyD") setRight(true);
     if (e.key == "ArrowUp" || e.code == "KeyW") setTurbo(true);
-    if (e.key == "ArrowDown" || e.code == "KeyS") setSlow(true);
+    if (e.key == "ArrowDown" || e.code == "KeyS") {
+        if (e.repeat) setSlow(true);
+    }
 });
 
 window.addEventListener('keyup', function(e) {
