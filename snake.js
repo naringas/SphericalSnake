@@ -106,6 +106,7 @@ function toggleDir() {
     } else {
         direction = orDir;
     }
+
     document.getElementById("show-dir1").innerText = orDir.toFixed(1);
     document.getElementById("show-dir4").innerText = orDir.toFixed(4);
 }
