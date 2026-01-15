@@ -3,7 +3,7 @@ var NODE_ANGLE = Math.PI / 70;
 
 // This is the number of positions stored in the node queue.
 // This determines the velocity.
-var NODE_QUEUE_SIZE = 8;
+var NODE_QUEUE_SIZE = 9;
 
 var STARTING_DIRECTION = 4*Math.random();
 var PAUSED = false;
@@ -23,7 +23,7 @@ var snakeVelocity;
 
 // The straight distance required to have two nodes colliding.
 // To derive, draw a triangle from the sphere origin of angle 2 * NODE_ANGLE.
-var collisionDistance = 1.999999999999 * Math.sin(NODE_ANGLE);
+var collisionDistance = 1.999999900000 * Math.sin(NODE_ANGLE);
 
 // The angle of the current snake direction in radians.
 var direction = STARTING_DIRECTION;
@@ -133,6 +133,13 @@ window.addEventListener('keydown', function(e) {
         if (e.repeat) setSlow(true);
         else document.getElementById("fixDir").click();
     }
+    // /*
+    // if (e.code == "KeyT" && (!e.repeat)) setTDown(true);
+    /* setTDown is intended for Q and E mimic-functionality on the arrows pad.
+    hold down T (forces a release of it, is cool);
+    if holding T down (and NOT holding back down; i.e. NOT setSlow) then
+    left-right keys behave as Q and E would
+    !TODO: finish up this*/
 
     if (e.code == "KeyQ") {
         // document.getElementById("fixDir").click();
@@ -156,7 +163,7 @@ window.addEventListener('keyup', function(e) {
     if (e.key == "ArrowUp" || e.code == "KeyW") setTurbo(false);
     if (e.key == "ArrowDown" || e.code == "KeyS") setSlow(false);
 
-    if (e.code == "KeyT") document.getElementById("fixDir").click();
+    if (e.code == "KeyT" && (!e.repeat)) document.getElementById("fixDir").click();
     /*
     // TODO: mirror of "E" toggle zero (east) direction functionalty. with a
     // self-determined not-east; details TBD....
@@ -392,11 +399,33 @@ function render() {
     // Draw angle.
     renderAngleDir(direction);
     //draw "next" toggle/untoggle original-Direction angle
-    renderAngleDir(orDir, (toggledTheDir ? "#51FF78" : "#FF7851"));
+    if (toggledTheDir) {
+        var color = "#48E56C"; //green
+        renderAngleDir(orDir, color);
+        var r = NODE_ANGLE / 2 * focalLength * 2.2;
+        ctx.beginPath();
+        ctx.arc(
+            centerX + Math.cos(direction) * r,
+            centerY + Math.sin(direction) * r,
+            10, 0, Math.PI, false);  //with `false` the + green direction looks forwards ->
+        ctx.fillStyle = color;
+        ctx.lineWidth = 1;
+        ctx.fill();
+    } else {
+        var color = "#FF7851"; //red
+        renderAngleDir(orDir, color);
+        var r = NODE_ANGLE / 2 * focalLength * 2.2;
+        ctx.beginPath();
+        ctx.arc(
+            centerX + Math.cos(orDir) * r,
+            centerY + Math.sin(orDir) * r,
+            20, direction, direction+Math.PI, true);
+        ctx.fillStyle = color;
+        ctx.lineWidth = 1;
+        ctx.fill();
+    }
 
     ctx.lineWidth = 1;
-
-
     // Draw circle.
     ctx.beginPath();
     ctx.strokeStyle = "rgb(10,10, 10)";
