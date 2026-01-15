@@ -3,9 +3,9 @@ var NODE_ANGLE = Math.PI / 70;
 
 // This is the number of positions stored in the node queue.
 // This determines the velocity.
-var NODE_QUEUE_SIZE = 9;
+var NODE_QUEUE_SIZE = 8;
 
-var STARTING_DIRECTION = Math.random();
+var STARTING_DIRECTION = 4*Math.random();
 var PAUSED = false;
 
 var cnv, ctx, width, height, centerX, centerY, points, stopped;
@@ -64,17 +64,10 @@ function setTurbo(turbo) {
     snakeVelocity = NODE_ANGLE * 2 / (NODE_QUEUE_SIZE + 1) * (turbo ? 1.75 : 1.0);
 }
 
-function toggleHold(e) {
 
-}
 function setSlow(val) {
     slowDown = val;
-    if (slowDown) {
-        document.getElementById("fixDir").click();
-        // window.addEventListener('keydown', toggleHold);
-    } else {
-        // window.removeEventListener('keydown', toggleHold);
-    }
+    if (slowDown) document.getElementById("fixDir").click();
 }
 
 function togglePause() {
@@ -138,6 +131,7 @@ window.addEventListener('keydown', function(e) {
     if (e.key == "ArrowUp" || e.code == "KeyW") setTurbo(true);
     if (e.key == "ArrowDown" || e.code == "KeyS") {
         if (e.repeat) setSlow(true);
+        else document.getElementById("fixDir").click();
     }
 });
 
@@ -271,6 +265,9 @@ function init() {
     leftDown = false;
     rightDown = false;
     regeneratePellet();
+
+    toggledTheDir = false;
+    document.getElementById("fixDir").checked = toggledTheDir;
 
     // The +1 is necessary since the queue excludes the current position.
     snakeVelocity = NODE_ANGLE * 2 / (NODE_QUEUE_SIZE + 1);
