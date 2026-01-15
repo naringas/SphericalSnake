@@ -81,6 +81,7 @@
             cursor: pointer;
             touch-action: manipulation;
             font-size: 10pt;
+            margin: 0 5px;
         }
 
         #move_left {
@@ -116,14 +117,17 @@
         }
 
         #stuff {
-            font-size: 3em;
+            /*font-size: 3em;*/
             font: fixed;
         }
+        #stuff div,
         #stuff label,
         #stuff span
         {
             font-size: 8pt;
+            display: inline-block;
         }
+
     </style>
 </head>
 
@@ -134,19 +138,32 @@
         <p class="banner" id='paused'>Paused</a></p>
         <canvas width='800' height='800'></canvas>
         <div id="mobile_controls">
+            <!-- <span class="button" id="">[🇶]</span> -->
             <span class="button" id="move_left">[🇦]</span>
+
+            <!-- <span class="button" id="move_forwards">[🇼]</span> -->
+            <span class="button" style="top: -50px;">
+                <input type="checkbox" id="fixDir" />
+                <label for="fixDir" title="Toggle direction 0">[🇹]</label>
+            </span>
+
             <span class="button" id="move_right">[🇩]</span>
+            <!-- <span class="button" id="">[🇪]</span> -->
         </div>
         <div id="stuff">
-            <!-- value=0 as in the snake's starting direction was 0; is at this moment Math.random(),
-            0 remains HARDCODED as the toggle OFF value; 0 means rightwards along the horizontal -->
-            <label for="fixDir">[🇪]Toggle directional fixing</label>
-            <input id="showDir" readonly />
-            <input type="checkbox" id="fixDir"/>
-
-            <span id="show-dir4">+-00.00 NaN</span>
-            <label>==</label>
-            <span id="show-dir1">0.0</span>
+            <div>
+                <!-- value=0 as in the snake's starting direction was 0; is at this moment Math.random(),
+                0 remains HARDCODED as the toggle OFF value; 0 means rightwards along the horizontal -->
+                <label for="fixDir" title="crash carefully">[🇶] & [🇪] turn hard LEFT or RIGHT
+                    <br>BUT if checkbox is ON
+                    <br>LEFT or RIGHT become absolute NORTH or SOUTH</label>
+            </div>
+            <div >
+                <input id="showDir" readonly />
+                <span id="show-dir4">+-00.00 NaN</span>
+                <label>==</label>
+                <span id="show-dir1">0.0</span>
+            </div>
         </div>
         <button title="+50 score-pellets" id="PUP">Power UP!</button>
         <p style="font-size:small; font-family:times;">Inspired (forked from) https://github.com/kevinAlbs/SphericalSnake; source on GitHub</p>

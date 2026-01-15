@@ -23,7 +23,7 @@ var snakeVelocity;
 
 // The straight distance required to have two nodes colliding.
 // To derive, draw a triangle from the sphere origin of angle 2 * NODE_ANGLE.
-var collisionDistance = 2 * Math.sin(NODE_ANGLE);
+var collisionDistance = 1.999999999999 * Math.sin(NODE_ANGLE);
 
 // The angle of the current snake direction in radians.
 var direction = STARTING_DIRECTION;
@@ -133,6 +133,21 @@ window.addEventListener('keydown', function(e) {
         if (e.repeat) setSlow(true);
         else document.getElementById("fixDir").click();
     }
+
+    if (e.code == "KeyQ") {
+        // document.getElementById("fixDir").click();
+        if (toggledTheDir)
+            direction = 0 - Math.PI / 2;
+        else
+            direction -= Math.PI / 2;
+    }
+    if (e.code == "KeyE") {
+        //document.getElementById("fixDir").click();
+        if (toggledTheDir)
+            direction = 0 + Math.PI / 2;
+        else
+            direction += Math.PI / 2;
+    }
 });
 
 window.addEventListener('keyup', function(e) {
@@ -147,11 +162,8 @@ window.addEventListener('keyup', function(e) {
     // self-determined not-east; details TBD....
 
     just the UI consequences give me a headache (make my head spin)
-
-
-    if (e.code == "KeyQ") document.getElementById("fixDir").click();
     */
-    if (e.code == "KeyE") document.getElementById("fixDir").click();
+
 });
 
 btnMoveLeft.addEventListener("pointerdown", function (e) {
