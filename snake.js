@@ -1,5 +1,10 @@
+/*
+`GAME_SIZE` sets the number of "NODE_ANGLE"s that define "virtual PI"
+or the number of TOTAL snake pellets to fill up one circumference of game world. */
+const GAME_SIZE = 70;
+
 // Angle representing the radius of one snake node.
-var NODE_ANGLE = Math.PI / 70;
+var NODE_ANGLE = Math.PI / GAME_SIZE;
 
 // This is the number of positions stored in the node queue.
 // This determines the velocity.
@@ -15,6 +20,7 @@ var accumulatedDelta = 0; // How much delta time is built up.
 
 // An array of snake nodes.
 var snake;
+var snake_head_size = 8;  //total including head (pos=0) and tail (pos=7)
 
 // Point representing the pellet to eat.
 var pellet;
@@ -23,7 +29,7 @@ var snakeVelocity;
 
 // The straight distance required to have two nodes colliding.
 // To derive, draw a triangle from the sphere origin of angle 2 * NODE_ANGLE.
-var collisionDistance = 1.999999900000 * Math.sin(NODE_ANGLE);
+var collisionDistance = 1.999999900005 * Math.sin(NODE_ANGLE);
 
 // The angle of the current snake direction in radians.
 var direction = STARTING_DIRECTION;
@@ -133,23 +139,14 @@ window.addEventListener('keydown', function(e) {
         if (e.repeat) setSlow(true);
         else document.getElementById("fixDir").click();
     }
-    // /*
-    // if (e.code == "KeyT" && (!e.repeat)) setTDown(true);
-    /* setTDown is intended for Q and E mimic-functionality on the arrows pad.
-    hold down T (forces a release of it, is cool);
-    if holding T down (and NOT holding back down; i.e. NOT setSlow) then
-    left-right keys behave as Q and E would
-    !TODO: finish up this*/
 
     if (e.code == "KeyQ") {
-        // document.getElementById("fixDir").click();
         if (toggledTheDir)
             direction = 0 - Math.PI / 2;
         else
             direction -= Math.PI / 2;
     }
     if (e.code == "KeyE") {
-        //document.getElementById("fixDir").click();
         if (toggledTheDir)
             direction = 0 + Math.PI / 2;
         else
@@ -388,8 +385,8 @@ function render() {
         this 7 (strict less than) pellets get a blue hue.
         and the last one ("the neck") gets marked specially */
         let blue;
-        if (i < 7) blue = 80;
-        else if (i == 7) blue = 180;
+        if (i < snake_head_size-1) blue = 80;
+        else if (i == snake_head_size-1) blue = 180;
         else blue = 0;
         drawPoint(snake[i], NODE_ANGLE, 120, blue);
     }
@@ -431,16 +428,15 @@ function render() {
     ctx.strokeStyle = "rgb(10,10, 10)";
 
     // The radius value was determined experimentally; and then further tweaked manually.
-    ctx.arc(centerX, centerY, .53 * focalLength, 0, Math.PI * 2);
+    ctx.arc(centerX, centerY, .56 * focalLength, 0, Math.PI * 2);
     ctx.stroke();
 
     ctx.strokeStyle = "#AAA";
     ctx.beginPath();
-    // ctx.arc(centerX, centerY, .58 * focalLength, 0, Math.PI * 2); //original "calculation"
-    // ctx.stroke();
-    // ctx.beginPath();
-    ctx.arc(centerX, centerY, .60009 * focalLength, 0, Math.PI * 2);
+    ctx.setLineDash([1,7]);
+    ctx.arc(centerX, centerY, .6000007 * focalLength, 0, Math.PI * 2);
     ctx.stroke();
+    ctx.setLineDash([]);
 }
 
 // If pt is not provided, rotate all points.
@@ -506,9 +502,9 @@ function collision(a,b) {
 }
 
 function checkCollisions(skip = 6) {
-    for (var i = 2 + skip; i < snake.length; i++) {
+    for (var i = 2 + (snake_head_size - 2 /*why -2? so it (=8) equals `skip=6`*/); i < snake.length; i++) {
          if (collision(snake[0], snake[i])) {
-             showEnd();
+             snakeCrash(i);
              // leaderboard.setScore(score);
              return;
          }
@@ -518,6 +514,17 @@ function checkCollisions(skip = 6) {
         addSnakeNode();
         incrementScore();
     }
+}
+function snakeCrash(pelletNum) {
+    /* a Score must be computed.
+    a Crash splits the snake into closed-loop side and the other side with the tail. */
+    let parity = snake.length % 2;
+    let snake_loop = snake.length - pelletNum - snake_head_size;
+    let remainder = snake.length - snake_loop;
+    console.log("collision. snake:", snake.length, snake);
+    console.log("collision. parity, loop length, leftover tail:",
+        parity?'odd':'even', snake_loop, remainder);
+    showEnd();
 }
 
 function showEnd() {

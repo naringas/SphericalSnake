@@ -66,7 +66,6 @@
             height: 10px;
             top: -100px;
         }
-
         .button {
             padding: 10px;
             background: #EEE;
@@ -83,6 +82,9 @@
             font-size: 10pt;
             margin: 0 5px;
         }
+        #mobile_controls .button.down {
+            background-color: #67bfff;
+        }
 
         #move_left {
             vertical-align: center;
@@ -96,9 +98,9 @@
         }
 
         #move_right {
+            vertical-align: center;
             width: 50px;
             height: 50px;
-            vertical-align: center;
             text-align: center;
 
             right: 10px;
@@ -106,8 +108,15 @@
             background: url("right.png") 23px 21px no-repeat #EEE;
         }
 
-        #mobile_controls .button.down {
-            background-color: #67bfff;
+        #toggle_direction {
+            left: 5px;
+            top: -60px;
+        }
+        #toggle_direction::before {
+            content: "🔳";
+        }
+        #toggle_direction.down::before {
+            content: "☑️";
         }
 
         #refresh {
@@ -127,7 +136,6 @@
             font-size: 8pt;
             display: inline-block;
         }
-
     </style>
 </head>
 
@@ -142,10 +150,7 @@
             <span class="button" id="move_left">[🇦]</span>
 
             <!-- <span class="button" id="move_forwards">[🇼]</span> -->
-            <span class="button" style="top: -50px;">
-                <input type="checkbox" id="fixDir" />
-                <label for="fixDir" title="Toggle direction 0">[🇹]</label>
-            </span>
+            <label class="button" id="toggle_direction" for="fixDir" title="Toggle direction and red/green mode">[🇹]</label>
 
             <span class="button" id="move_right">[🇩]</span>
             <!-- <span class="button" id="">[🇪]</span> -->
@@ -156,7 +161,9 @@
                 0 remains HARDCODED as the toggle OFF value; 0 means rightwards along the horizontal -->
                 <label for="fixDir" title="crash carefully">[🇶] & [🇪] turn hard LEFT or RIGHT
                     <br>BUT if checkbox is ON
-                    <br>LEFT or RIGHT become absolute NORTH or SOUTH</label>
+                    <br>LEFT or RIGHT become absolute NORTH or SOUTH
+                </label>
+                <input type="checkbox" id="fixDir" style="transform:scale(1.66066);"/>
             </div>
             <div >
                 <input id="showDir" readonly />
