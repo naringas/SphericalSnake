@@ -8,7 +8,7 @@ var NODE_ANGLE = Math.PI / GAME_SIZE;
 
 // This is the number of positions stored in the node queue.
 // This determines the velocity.
-var NODE_QUEUE_SIZE = 9;
+var NODE_QUEUE_SIZE = 8;
 
 var STARTING_DIRECTION = 4*Math.random();
 var PAUSED = false;
@@ -29,7 +29,7 @@ var snakeVelocity;
 
 // The straight distance required to have two nodes colliding.
 // To derive, draw a triangle from the sphere origin of angle 2 * NODE_ANGLE.
-var collisionDistance = 1.999999900005 * Math.sin(NODE_ANGLE);
+var collisionDistance = 1.99909990005 * Math.sin(NODE_ANGLE);
 
 // The angle of the current snake direction in radians.
 var direction = STARTING_DIRECTION;
@@ -75,9 +75,9 @@ function setSlow(val) {
     slowDown = val;
     if (slowDown) {
         document.getElementById("fixDir").click();
-        btnToggleDir.classList.add("down");
+        // btnToggleDir.classList.add("down");
     } else {
-        btnToggleDir.classList.remove("down");
+        // btnToggleDir.classList.remove("down");
     }
 }
 
@@ -143,6 +143,7 @@ window.addEventListener('keydown', function(e) {
     if (e.key == "ArrowDown" || e.code == "KeyS") {
         if (e.repeat) setSlow(true);
         else document.getElementById("fixDir").click();
+        btnToggleDir.classList.add("down");
     }
 
     if (e.code == "KeyQ") {
@@ -163,7 +164,10 @@ window.addEventListener('keyup', function(e) {
     if (e.key == "ArrowLeft"  || e.code == "KeyA") setLeft(false);
     if (e.key == "ArrowRight" || e.code == "KeyD") setRight(false);
     if (e.key == "ArrowUp" || e.code == "KeyW") setTurbo(false);
-    if (e.key == "ArrowDown" || e.code == "KeyS") setSlow(false);
+    if (e.key == "ArrowDown" || e.code == "KeyS") {
+        setSlow(false);
+        btnToggleDir.classList.remove("down");
+    }
 
     if (e.code == "KeyT" && (!e.repeat)) document.getElementById("fixDir").click();
     /*
@@ -204,6 +208,38 @@ btnMoveRight.addEventListener("pointerup", function (e) {
     setRight(false);
 });
 btnMoveRight.addEventListener("contextmenu", function (e) {
+    e.preventDefault();
+});
+
+btnToggleDir.addEventListener("pointerdown", function (e) {
+    e.preventDefault();
+    slowDown = true;
+});
+btnToggleDir.addEventListener("pointerleave", function (e) {
+    e.preventDefault();
+    slowDown = false;
+});
+btnToggleDir.addEventListener("pointerup", function (e) {
+    e.preventDefault();
+    slowDown = false;
+});
+btnToggleDir.addEventListener("contextmenu", function (e) {
+    e.preventDefault();
+});
+
+btnMoveUp.addEventListener("pointerdown", function (e) {
+    e.preventDefault();
+    setTurbo(true);
+});
+btnMoveUp.addEventListener("pointerleave", function (e) {
+    e.preventDefault();
+    setTurbo(false);
+});
+btnMoveUp.addEventListener("pointerup", function (e) {
+    e.preventDefault();
+    setTurbo(false);
+});
+btnMoveUp.addEventListener("contextmenu", function (e) {
     e.preventDefault();
 });
 
@@ -292,7 +328,7 @@ function init() {
 
     // The +1 is necessary since the queue excludes the current position.
     snakeVelocity = NODE_ANGLE * 2 / (NODE_QUEUE_SIZE + 1);
-    var n = 40;
+    var n = 52;
     for (var i = 0; i < n; i++) {
         for (var j = 0; j < n; j++) {
             points.push(
@@ -382,7 +418,7 @@ function renderAngleDir(direction_, strokeStyle="#FFF") {
 function render() {
     ctx.clearRect(0, 0, width, height);
     for(var i = 0; i < points.length; i++) {
-        drawPoint(points[i], 1 / 250, 0);
+        drawPoint(points[i], 1 / 360, 0);
     }
     for (var i = 0; i < snake.length; i++) {
         /* the first 6 andor 7 nodes don't self-collide.
@@ -433,7 +469,7 @@ function render() {
     ctx.strokeStyle = "rgb(10,10, 10)";
 
     // The radius value was determined experimentally; and then further tweaked manually.
-    ctx.arc(centerX, centerY, .56 * focalLength, 0, Math.PI * 2);
+    ctx.arc(centerX, centerY, .548 * focalLength, 0, Math.PI * 2);
     ctx.stroke();
 
     ctx.strokeStyle = "#AAA";
@@ -523,13 +559,27 @@ function checkCollisions(skip = 6) {
 function snakeCrash(pelletNum) {
     /* a Score must be computed.
     a Crash splits the snake into closed-loop side and the other side with the tail. */
-    let parity = snake.length % 2;
-    let snake_loop = snake.length - pelletNum - snake_head_size;
-    let remainder = snake.length - snake_loop;
-    console.log("collision. snake:", snake.length, snake);
-    console.log("collision. parity, loop length, leftover tail:",
-        parity?'odd':'even', snake_loop, remainder);
+    // all pelletNum go with +1 viceversa from all snake.length-1 ; ignore head node.
+    const collision = pelletNum+1; // i.e. "left-over" snake
+    let remainder = snake.length-collision;
+
+    let parity = snake.length-1 - snake_head_size % 2;
+    let snake_half = Math.trunc((snake.length-1 - snake_head_size) / 2);
+
+    console.log("collision@", collision);
+    console.log("snake:", snake.length, snake);
+    // console.log("parity", parity?'odd':'even');
+    console.log("snake_half", snake_half);
+    console.log("remainder. tail:", remainder);
+
+    console.log("VEREDICT", collision > (snake.length-1-remainder) ? "lives":"dies" );
     showEnd();
+}
+
+function autoRun() {
+    // disable controls
+    // loop the rotations remaking the snake
+
 }
 
 function showEnd() {
