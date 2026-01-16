@@ -118,6 +118,18 @@
         #toggle_direction.down::before {
             content: "☑️";
         }
+        #toggle_direction:active::before {
+            content: "☑️";
+        }
+
+        #move_forwards {
+            right: 5px;
+            top: -60px;
+        }
+        #move_forwards::after {
+            content: "⬆️";
+            font-size: 1.5em;
+        }
 
         #refresh {
             color: #0093fc;
@@ -148,10 +160,9 @@
         <div id="mobile_controls">
             <!-- <span class="button" id="">[🇶]</span> -->
             <span class="button" id="move_left">[🇦]</span>
+            <label class="button" id="toggle_direction" for="fixDir" title="Toggle direction and red/green mode">[🇸]</label>
 
-            <!-- <span class="button" id="move_forwards">[🇼]</span> -->
-            <label class="button" id="toggle_direction" for="fixDir" title="Toggle direction and red/green mode">[🇹]</label>
-
+            <span class="button" id="move_forwards">[🇼]</span>
             <span class="button" id="move_right">[🇩]</span>
             <!-- <span class="button" id="">[🇪]</span> -->
         </div>
@@ -162,6 +173,7 @@
                 <label for="fixDir" title="crash carefully">[🇶] & [🇪] turn hard LEFT or RIGHT
                     <br>BUT if checkbox is ON
                     <br>LEFT or RIGHT become absolute NORTH or SOUTH
+                    [🇹]
                 </label>
                 <input type="checkbox" id="fixDir" style="transform:scale(1.66066);"/>
             </div>

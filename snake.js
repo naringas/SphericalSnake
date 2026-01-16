@@ -63,17 +63,22 @@ function setRight(val) {
     }
 }
 
+const btnMoveUp = document.querySelector("#move_forwards");
 function setTurbo(turbo) {
-    /* Controller UI inconsitensy RISES:
-    TODO: expose graphic of Turbo, Q, and E buttons. and slowdown too.... */
-    // The +1 is necessary since the queue excludes the current position.
+    if (turbo) btnMoveUp.classList.add("down");
+    else btnMoveUp.classList.remove("down");
     snakeVelocity = NODE_ANGLE * 2 / (NODE_QUEUE_SIZE + 1) * (turbo ? 1.75 : 1.0);
 }
 
-
+const btnToggleDir = document.querySelector("#toggle_direction");
 function setSlow(val) {
     slowDown = val;
-    if (slowDown) document.getElementById("fixDir").click();
+    if (slowDown) {
+        document.getElementById("fixDir").click();
+        btnToggleDir.classList.add("down");
+    } else {
+        btnToggleDir.classList.remove("down");
+    }
 }
 
 function togglePause() {
