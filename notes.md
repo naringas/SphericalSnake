@@ -5,3 +5,5 @@ Things learned:
 RotateZ (90 - A) to orient axis up
 RotateY (amount) to do the rotation
 RotateZ (- (90 - A)) to orient axis back
+
+- The motion of the snake is the same as the motion of the world-sphere 🤯

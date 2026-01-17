@@ -29,7 +29,7 @@ var snakeVelocity;
 
 // The straight distance required to have two nodes colliding.
 // To derive, draw a triangle from the sphere origin of angle 2 * NODE_ANGLE.
-var collisionDistance = 1.99909990005 * Math.sin(NODE_ANGLE);
+var collisionDistance = 1.999999900005 * Math.sin(NODE_ANGLE);
 
 // The angle of the current snake direction in radians.
 var direction = STARTING_DIRECTION;
@@ -336,7 +336,7 @@ function init() {
         }
     }
     snake = [];
-    for (var i = 0; i < 8; i++) addSnakeNode();
+    for (var i = 0; i < snake_head_size; i++) addSnakeNode();
 
     window.requestAnimationFrame(update);
 }
