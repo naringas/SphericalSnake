@@ -1,131 +1,151 @@
 /*
-Torus geometry parameters:
-TORUS_R: major radius (distance from center of donut hole to center of tube)
-TORUS_r: minor radius (radius of the tube)
-NODE_RADIUS: physical radius of a snake pellet on the torus surface
+Spherical & Torus Snake
+Supports playing on:
+1. Sphere (Classic S^2 topology)
+2. Torus (3D Donut T^2 topology)
 */
-const TORUS_R = 1.0;
-const TORUS_r = 0.5;
-const NODE_RADIUS = 0.054;
 
-// This is the number of positions stored in the node queue.
-// This determines the velocity.
+// Common game parameters
 var NODE_QUEUE_SIZE = 8;
-
-var STARTING_DIRECTION = (Math.sqrt(5) - 1) / 2;
+var snake_head_size = 8; // total including head (pos=0) and neck/tail (pos=7)
+var STARTING_DIRECTION;
 var PAUSED = false;
+var stopped = false;
+var gameStarted = false;
+var isStageSelectOpen = true;
+var currentStage = null; // 'sphere' or 'torus'
 
-var cnv, ctx, width, height, centerX, centerY, points, stopped;
-
+var cnv, ctx, width, height, centerX, centerY, points;
 var clock; // Absolute time since last update.
 var accumulatedDelta = 0; // How much delta time is built up.
+var animFrameId = null;
 
-// An array of snake nodes.
-var snake;
-var snake_head_size = 8;  //total including head (pos=0) and tail (pos=7)
+// Sphere geometry parameters (from classic Sphere version)
+const SPHERE_GAME_SIZE = 70;
+const SPHERE_NODE_ANGLE = Math.PI / SPHERE_GAME_SIZE;
+const SPHERE_COLLISION_DISTANCE = 1.999999900005 * Math.sin(SPHERE_NODE_ANGLE);
+const SPHERE_FOCAL_LENGTH = 500;
 
-// Point representing the pellet to eat.
-var pellet;
+// Torus geometry parameters (from 3D Torus version)
+const TORUS_R = 1.0;
+const TORUS_r = 0.5;
+const TORUS_NODE_RADIUS = 0.054;
+const TORUS_COLLISION_DISTANCE = 1.9 * TORUS_NODE_RADIUS;
+const TORUS_FOCAL_LENGTH = 550;
+const TORUS_CAMERA_DISTANCE = 3.2;
+const TORUS_STARTING_DIRECTION = (Math.sqrt(5) - 1) / 2;
 
+// Active runtime parameters (set on stage start)
+var focalLength = SPHERE_FOCAL_LENGTH;
+var cameraDistance = TORUS_CAMERA_DISTANCE;
+var collisionDistance = SPHERE_COLLISION_DISTANCE;
 var snakeVelocity;
 
-// Straight 3D distance required to have two nodes colliding.
-var collisionDistance = 1.9 * NODE_RADIUS;
-
-// The angle of the current snake direction on the torus tangent plane in radians.
-// 0 = East (+u, along major circle), PI/2 = South (+v, along minor tube circle)
-var direction = STARTING_DIRECTION;
-
-var focalLength = 550;
-var cameraDistance = 3.2;
-
-var leftDown, rightDown;
-var slowDown;
-
+// Snake & Pellet state
+var snake = [];
+var pellet;
+var direction = 0;
 var score = 0;
 
+var leftDown = false;
+var rightDown = false;
+var slowDown = false;
+
+// DOM elements
 const btnMoveLeft = document.querySelector("#move_left");
+const btnMoveRight = document.querySelector("#move_right");
+const btnMoveUp = document.querySelector("#move_forwards");
+const btnToggleDir = document.querySelector("#toggle_direction");
+const stageSelectOverlay = document.getElementById("stage_select_overlay");
+
 function setLeft(val) {
     if (val) {
         leftDown = true;
         btnMoveLeft.classList.add("down");
     } else {
         leftDown = false;
-        btnMoveLeft.classList.remove("down");   
+        btnMoveLeft.classList.remove("down");
     }
 }
 
-const btnMoveRight = document.querySelector("#move_right");
 function setRight(val) {
     if (val) {
         rightDown = true;
         btnMoveRight.classList.add("down");
     } else {
         rightDown = false;
-        btnMoveRight.classList.remove("down");   
+        btnMoveRight.classList.remove("down");
     }
 }
 
-const btnMoveUp = document.querySelector("#move_forwards");
 function setTurbo(turbo) {
     if (turbo) btnMoveUp.classList.add("down");
     else btnMoveUp.classList.remove("down");
-    snakeVelocity = NODE_RADIUS * 2 / (NODE_QUEUE_SIZE + 1) * (turbo ? 1.75 : 1.0);
+
+    if (currentStage === 'sphere') {
+        snakeVelocity = SPHERE_NODE_ANGLE * 2 / (NODE_QUEUE_SIZE + 1) * (turbo ? 1.75 : 1.0);
+    } else {
+        snakeVelocity = TORUS_NODE_RADIUS * 2 / (NODE_QUEUE_SIZE + 1) * (turbo ? 1.75 : 1.0);
+    }
 }
 
-const btnToggleDir = document.querySelector("#toggle_direction");
 function setSlow(val) {
     slowDown = val;
     if (slowDown) {
         document.getElementById("fixDir").click();
-        // btnToggleDir.classList.add("down");
-    } else {
-        // btnToggleDir.classList.remove("down");
     }
 }
 
 function togglePause() {
+    if (stopped || isStageSelectOpen || !gameStarted) return;
     if (PAUSED) {
         PAUSED = false;
-        document.getElementById('paused').style = 'display:none';
-        window.requestAnimationFrame(update);
+        document.getElementById('paused').style.display = 'none';
+        clock = Date.now();
+        animFrameId = window.requestAnimationFrame(update);
     } else {
         PAUSED = true;
-        document.getElementById('paused').style = 'display:block';
+        document.getElementById('paused').style.display = 'block';
     }
 }
+
 function handlePAUSE(e) {
-    e.preventDefault();
-    if (e.code == "Space") togglePause();
+    if (e.code === "Space") {
+        e.preventDefault();
+        togglePause();
+    }
 }
 window.addEventListener('keydown', handlePAUSE);
 
-
 function doPowerUP(e) {
-    if (PAUSED || stopped) return;
+    if (PAUSED || stopped || !gameStarted || isStageSelectOpen) return;
     let count = 50;
+    const btn = document.querySelector("#PUP");
     const interval = setInterval(() => {
-            incrementScore();
-            addSnakeNode();
-            if (--count <= 0) clearInterval(interval);
-        }, 50);
+        if (stopped || PAUSED || isStageSelectOpen) {
+            clearInterval(interval);
+            return;
+        }
+        incrementScore();
+        addSnakeNode();
+        if (--count <= 0) clearInterval(interval);
+    }, 50);
 
-    // set and unset disabled
-    this.disabled = true;
-    setInterval(() => {
-        this.disabled=false
-    }, 2250)
-    e.preventDefault();
+    btn.disabled = true;
+    setTimeout(() => {
+        btn.disabled = false;
+    }, 2250);
+    if (e) e.preventDefault();
 }
 document.querySelector("#PUP").addEventListener("click", doPowerUP);
 
 /* "toggle direction button" stuff */
 let orDir = direction;
-let toggledTheDir = document.getElementById("fixDir").checked; //interface controls the visual-default
+let toggledTheDir = document.getElementById("fixDir").checked;
 function toggleDir() {
     if (toggledTheDir) {
         orDir = direction;
-        direction = 0;  //East
+        direction = 0; // East
     } else {
         direction = orDir;
     }
@@ -133,55 +153,61 @@ function toggleDir() {
     document.getElementById("show-dir1").innerText = orDir.toFixed(1);
     document.getElementById("show-dir4").innerText = orDir.toFixed(4);
 }
-document.querySelector("#fixDir").addEventListener("input", function (e) {
+document.querySelector("#fixDir").addEventListener("input", function () {
     toggledTheDir = this.checked;
     toggleDir();
-})
+});
 
-
+// User keyboard inputs
 window.addEventListener('keydown', function(e) {
-    if (e.key == "ArrowLeft"  || e.code == "KeyA") setLeft(true);
-    if (e.key == "ArrowRight" || e.code == "KeyD") setRight(true);
-    if (e.key == "ArrowUp" || e.code == "KeyW") setTurbo(true);
-    if (e.key == "ArrowDown" || e.code == "KeyS") {
+    if (isStageSelectOpen) {
+        if (e.key === "1" || e.code === "Digit1" || e.code === "Numpad1") {
+            e.preventDefault();
+            startGame('sphere');
+            return;
+        }
+        if (e.key === "2" || e.code === "Digit2" || e.code === "Numpad2") {
+            e.preventDefault();
+            startGame('torus');
+            return;
+        }
+        return;
+    }
+
+    if (e.key === "ArrowLeft" || e.code === "KeyA") setLeft(true);
+    if (e.key === "ArrowRight" || e.code === "KeyD") setRight(true);
+    if (e.key === "ArrowUp" || e.code === "KeyW") setTurbo(true);
+    if (e.key === "ArrowDown" || e.code === "KeyS") {
         if (e.repeat) setSlow(true);
         else document.getElementById("fixDir").click();
         btnToggleDir.classList.add("down");
     }
 
-    if (e.code == "KeyQ") {
-        if (toggledTheDir)
-            direction = 0 - Math.PI / 2;
-        else
-            direction -= Math.PI / 2;
+    if (e.code === "KeyQ") {
+        if (toggledTheDir) direction = 0 - Math.PI / 2;
+        else direction -= Math.PI / 2;
     }
-    if (e.code == "KeyE") {
-        if (toggledTheDir)
-            direction = 0 + Math.PI / 2;
-        else
-            direction += Math.PI / 2;
+    if (e.code === "KeyE") {
+        if (toggledTheDir) direction = 0 + Math.PI / 2;
+        else direction += Math.PI / 2;
     }
 });
 
 window.addEventListener('keyup', function(e) {
-    if (e.key == "ArrowLeft"  || e.code == "KeyA") setLeft(false);
-    if (e.key == "ArrowRight" || e.code == "KeyD") setRight(false);
-    if (e.key == "ArrowUp" || e.code == "KeyW") setTurbo(false);
-    if (e.key == "ArrowDown" || e.code == "KeyS") {
+    if (isStageSelectOpen) return;
+
+    if (e.key === "ArrowLeft" || e.code === "KeyA") setLeft(false);
+    if (e.key === "ArrowRight" || e.code === "KeyD") setRight(false);
+    if (e.key === "ArrowUp" || e.code === "KeyW") setTurbo(false);
+    if (e.key === "ArrowDown" || e.code === "KeyS") {
         setSlow(false);
         btnToggleDir.classList.remove("down");
     }
 
-    if (e.code == "KeyT" && (!e.repeat)) document.getElementById("fixDir").click();
-    /*
-    // TODO: mirror of "E" toggle zero (east) direction functionalty. with a
-    // self-determined not-east; details TBD....
-
-    just the UI consequences give me a headache (make my head spin)
-    */
-
+    if (e.code === "KeyT" && (!e.repeat)) document.getElementById("fixDir").click();
 });
 
+// Mobile button event listeners
 btnMoveLeft.addEventListener("pointerdown", function (e) {
     e.preventDefault();
     setLeft(true);
@@ -246,15 +272,251 @@ btnMoveUp.addEventListener("contextmenu", function (e) {
     e.preventDefault();
 });
 
-function restartGame (e) {
-    e.preventDefault();
-    window.location.reload(true);
+// Restart & stage selection handlers
+function restartGame(e) {
+    if (e) e.preventDefault();
+    if (currentStage) {
+        startGame(currentStage);
+    } else {
+        openStageSelect();
+    }
 }
-document.querySelector("#refresh").addEventListener("click", restartGame)
+document.querySelector("#refresh").addEventListener("click", restartGame);
+document.getElementById("btn_switch_stage").addEventListener("click", function(e) {
+    e.preventDefault();
+    openStageSelect();
+});
+document.getElementById("select_stage_link").addEventListener("click", function(e) {
+    e.preventDefault();
+    openStageSelect();
+});
 
+document.getElementById("select_sphere").addEventListener("click", function() {
+    startGame('sphere');
+});
+document.getElementById("select_sphere").addEventListener("keydown", function(e) {
+    if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        startGame('sphere');
+    }
+});
 
-function regeneratePellet() {
-    // Rejection sampling for uniform surface area distribution on torus: dA = r * (R + r * cos(v)) du dv
+document.getElementById("select_torus").addEventListener("click", function() {
+    startGame('torus');
+});
+document.getElementById("select_torus").addEventListener("keydown", function(e) {
+    if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        startGame('torus');
+    }
+});
+
+function openStageSelect() {
+    stopped = true;
+    isStageSelectOpen = true;
+    PAUSED = false;
+    if (animFrameId) {
+        window.cancelAnimationFrame(animFrameId);
+        animFrameId = null;
+    }
+    stageSelectOverlay.style.display = 'flex';
+    document.getElementById('gg').style.display = 'none';
+    document.getElementById('paused').style.display = 'none';
+}
+
+function updateScoreDisplay() {
+    var stageLabel = currentStage === 'sphere' ? 'Sphere' : (currentStage === 'torus' ? 'Torus' : '');
+    var stageText = stageLabel ? ' &nbsp;|&nbsp; Stage: ' + stageLabel : '';
+    document.querySelector("#score").innerHTML = "Score: " + score + stageText;
+}
+
+function incrementScore() {
+    score += 1;
+    updateScoreDisplay();
+}
+
+// ==========================================
+// SPHERE MATHEMATICS & LOGIC (Classic Mode)
+// ==========================================
+
+function pointFromSpherical(theta, phi) {
+    var sinPhi = Math.sin(phi);
+    return {
+        x: Math.cos(theta) * sinPhi,
+        y: Math.sin(theta) * sinPhi,
+        z: Math.cos(phi)
+    };
+}
+
+function copyPoint(src, dest) {
+    if (!dest) dest = {};
+    dest.x = src.x;
+    dest.y = src.y;
+    dest.z = src.z;
+    return dest;
+}
+
+function allPointsSphere() {
+    var all = [pellet].concat(points).concat(snake);
+    for (var i = 0; i < snake.length; i++) {
+        all = all.concat(snake[i].posQueue);
+    }
+    return all;
+}
+
+function rotateZ(a, pt) {
+    var cosA = Math.cos(a), sinA = Math.sin(a);
+    var inPoints = pt ? [pt] : allPointsSphere();
+    for (var i = 0; i < inPoints.length; i++) {
+        if (!inPoints[i]) continue;
+        var x = inPoints[i].x, y = inPoints[i].y;
+        inPoints[i].x = cosA * x - sinA * y;
+        inPoints[i].y = sinA * x + cosA * y;
+    }
+}
+
+function rotateY(a, pt) {
+    var cosA = Math.cos(a), sinA = Math.sin(a);
+    var inPoints = pt ? [pt] : allPointsSphere();
+    for (var i = 0; i < inPoints.length; i++) {
+        if (!inPoints[i]) continue;
+        var x = inPoints[i].x, z = inPoints[i].z;
+        inPoints[i].x = cosA * x + sinA * z;
+        inPoints[i].z = -sinA * x + cosA * z;
+    }
+}
+
+function regeneratePelletSphere() {
+    pellet = pointFromSpherical(Math.random() * Math.PI * 2, Math.random() * Math.PI);
+}
+
+function addSnakeNodeSphere() {
+    var snakeNode = {
+        x: 0, y: 0, z: -1, posQueue: []
+    };
+    for (var i = 0; i < NODE_QUEUE_SIZE; i++) snakeNode.posQueue.push(null);
+    if (snake.length > 0) {
+        var last = snake[snake.length - 1];
+        var lastPos = last.posQueue[NODE_QUEUE_SIZE - 1];
+        if (lastPos === null) {
+            copyPoint(last, snakeNode);
+            rotateZ(-STARTING_DIRECTION, snakeNode);
+            rotateY(-SPHERE_NODE_ANGLE * 2, snakeNode);
+            rotateZ(STARTING_DIRECTION, snakeNode);
+        } else {
+            copyPoint(lastPos, snakeNode);
+        }
+    }
+    snake.push(snakeNode);
+}
+
+function applySnakeRotationSphere() {
+    var nextPosition = null;
+    for (var i = 0; i < snake.length; i++) {
+        var oldPosition = copyPoint(snake[i]);
+        if (i === 0) {
+            rotateZ(-direction, snake[i]);
+            rotateY(snakeVelocity, snake[i]);
+            rotateZ(direction, snake[i]);
+        } else if (nextPosition === null) {
+            rotateZ(-STARTING_DIRECTION, snake[i]);
+            rotateY(snakeVelocity, snake[i]);
+            rotateZ(STARTING_DIRECTION, snake[i]);
+        } else {
+            copyPoint(nextPosition, snake[i]);
+        }
+        snake[i].posQueue.unshift(oldPosition);
+        nextPosition = snake[i].posQueue.pop();
+    }
+}
+
+function collisionSphere(a, b) {
+    var dist = Math.sqrt(
+        Math.pow(a.x - b.x, 2) +
+        Math.pow(a.y - b.y, 2) +
+        Math.pow(a.z - b.z, 2)
+    );
+    return dist < collisionDistance;
+}
+
+function drawPointSphere(point, radius, red, blue = 0) {
+    var p = copyPoint(point);
+    p.z += 2;
+    p.x *= -1 * focalLength / p.z;
+    p.y *= -1 * focalLength / p.z;
+    radius *= focalLength / p.z;
+    p.x += centerX;
+    p.y += centerY;
+
+    ctx.beginPath();
+    var alpha = 1 - (p.z - 1) / 2;
+    var depthColor = 255 - Math.floor((p.z - 1) / 2 * 255);
+    ctx.fillStyle = "rgba(" + red + ", " + blue + ", " + depthColor + ", " + alpha + ")";
+    ctx.arc(p.x, p.y, radius, 0, Math.PI * 2);
+    ctx.fill();
+}
+
+function renderSphere() {
+    ctx.clearRect(0, 0, width, height);
+    for (var i = 0; i < points.length; i++) {
+        drawPointSphere(points[i], 1 / 360, 0);
+    }
+    for (var i = 0; i < snake.length; i++) {
+        let blue;
+        if (i < snake_head_size - 1) blue = 80;
+        else if (i === snake_head_size - 1) blue = 180;
+        else blue = 0;
+        drawPointSphere(snake[i], SPHERE_NODE_ANGLE, 120, blue);
+    }
+    drawPointSphere(pellet, SPHERE_NODE_ANGLE, 0);
+
+    // Draw angle & direction arrows
+    renderAngleDir(direction);
+    var r = SPHERE_NODE_ANGLE / 2 * focalLength * 2.2;
+    if (toggledTheDir) {
+        var color = "#48E56C"; // green
+        renderAngleDir(orDir, color);
+        ctx.beginPath();
+        ctx.arc(
+            centerX + Math.cos(direction) * r,
+            centerY + Math.sin(direction) * r,
+            10, 0, Math.PI, false);
+        ctx.fillStyle = color;
+        ctx.lineWidth = 1;
+        ctx.fill();
+    } else {
+        var color = "#FF7851"; // red
+        renderAngleDir(orDir, color);
+        ctx.beginPath();
+        ctx.arc(
+            centerX + Math.cos(orDir) * r,
+            centerY + Math.sin(orDir) * r,
+            20, direction, direction + Math.PI, true);
+        ctx.fillStyle = color;
+        ctx.lineWidth = 1;
+        ctx.fill();
+    }
+
+    ctx.lineWidth = 1;
+    // Draw horizon circle.
+    ctx.beginPath();
+    ctx.strokeStyle = "rgb(10,10, 10)";
+    ctx.arc(centerX, centerY, .548 * focalLength, 0, Math.PI * 2);
+    ctx.stroke();
+
+    ctx.strokeStyle = "#AAA";
+    ctx.beginPath();
+    ctx.setLineDash([1, 7]);
+    ctx.arc(centerX, centerY, .6000007 * focalLength, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.setLineDash([]);
+}
+
+// ==========================================
+// TORUS MATHEMATICS & LOGIC (3D Donut Mode)
+// ==========================================
+
+function regeneratePelletTorus() {
     var u, v;
     while (true) {
         u = Math.random() * Math.PI * 2;
@@ -268,7 +530,6 @@ function regeneratePellet() {
     pellet = { u: u, v: v };
 }
 
-// Local 3D point on torus for given toroidal coordinates (u, v)
 function torusPoint(u, v) {
     var cosV = Math.cos(v);
     var sinV = Math.sin(v);
@@ -281,7 +542,6 @@ function torusPoint(u, v) {
     };
 }
 
-// Outward unit normal vector on torus at (u, v)
 function torusNormal(u, v) {
     var cosV = Math.cos(v);
     var sinV = Math.sin(v);
@@ -294,10 +554,6 @@ function torusNormal(u, v) {
     };
 }
 
-// Orthonormal Darboux frame {Tu, Tv, N} on torus at (u, v)
-// Tu: unit tangent along major circle (East / +u)
-// Tv: unit tangent along minor circle (South / +v)
-// N: outward unit normal (Tu x Tv = N)
 function torusFrame(u, v) {
     var cosV = Math.cos(v);
     var sinV = Math.sin(v);
@@ -313,7 +569,6 @@ function dot3D(a, b) {
     return a.x * b.x + a.y * b.y + a.z * b.z;
 }
 
-// Project point (u, v) to camera space using Darboux frame at head
 function projectTorusPoint(u, v, headPos, headFrame) {
     var p = torusPoint(u, v);
     var np = torusNormal(u, v);
@@ -324,10 +579,8 @@ function projectTorusPoint(u, v, headPos, headFrame) {
     };
     var xcam = dot3D(dp, headFrame.Tu);
     var ycam = dot3D(dp, headFrame.Tv);
-    var zcam = -dot3D(dp, headFrame.N); // into screen
+    var zcam = -dot3D(dp, headFrame.N);
     var depth = zcam + cameraDistance;
-
-    // Normal dot product with head normal: > 0 means front-facing surface
     var dotNorm = dot3D(np, headFrame.N);
 
     var sx = centerX + focalLength * (xcam / depth);
@@ -342,7 +595,7 @@ function projectTorusPoint(u, v, headPos, headFrame) {
     };
 }
 
-function addSnakeNode() {
+function addSnakeNodeTorus() {
     var last = snake[snake.length - 1];
     var lastPos = last.posQueue[NODE_QUEUE_SIZE - 1];
     var newNode = {
@@ -356,260 +609,12 @@ function addSnakeNode() {
     snake.push(newNode);
 }
 
-function incrementScore() {
-    score += 1;
-    document.querySelector("#score").innerHTML = "Score: " + score;
-}
-
-function init() {
-    cnv = document.getElementsByTagName('canvas')[0];
-    ctx = cnv.getContext('2d');
-    width = cnv.width;
-    height = cnv.height;
-    centerX = width / 2;
-    centerY = height / 2;
-    points = [];
-    clock = Date.now();
-    leftDown = false;
-    rightDown = false;
-
-    toggledTheDir = false;
-    document.getElementById("fixDir").checked = toggledTheDir;
-
-    snakeVelocity = (NODE_RADIUS * 2) / (NODE_QUEUE_SIZE + 1);
-
-    // Generate grid dots covering the 3D torus
-    var nU = 60;
-    var nV = 32;
-    for (var i = 0; i < nU; i++) {
-        for (var j = 0; j < nV; j++) {
-            points.push({
-                u: (i / nU) * Math.PI * 2,
-                v: (j / nV) * Math.PI * 2
-            });
-        }
-    }
-
-    // Initialize head at outer equator
-    var u0 = 0;
-    var v0 = 0;
-
-    // Generate backward history for initial snake nodes
-    var history = [{ u: u0, v: v0 }];
-    var currU = u0, currV = v0;
-    var dirBack = STARTING_DIRECTION + Math.PI;
-    var cosB = Math.cos(dirBack), sinB = Math.sin(dirBack);
-    var totalSteps = snake_head_size * (NODE_QUEUE_SIZE + 1);
-    for (var s = 0; s < totalSteps; s++) {
-        var du = (snakeVelocity * cosB) / (TORUS_R + TORUS_r * Math.cos(currV));
-        var dv = (snakeVelocity * sinB) / TORUS_r;
-        currU = (currU + du) % (Math.PI * 2);
-        if (currU < 0) currU += Math.PI * 2;
-        currV = (currV + dv) % (Math.PI * 2);
-        if (currV < 0) currV += Math.PI * 2;
-        history.push({ u: currU, v: currV });
-    }
-
-    snake = [];
-    for (var i = 0; i < snake_head_size; i++) {
-        var idx = i * (NODE_QUEUE_SIZE + 1);
-        var pos = history[idx];
-        var q = [];
-        for (var k = 0; k < NODE_QUEUE_SIZE; k++) {
-            q.push(history[idx + 1 + k]);
-        }
-        snake.push({
-            u: pos.u,
-            v: pos.v,
-            posQueue: q
-        });
-    }
-
-    regeneratePellet();
-
-    window.requestAnimationFrame(update);
-}
-
-function update() {
-    if (stopped) return;
-    var curr = Date.now();
-    var delta = curr - clock;
-    clock = curr;
-
-    accumulatedDelta += delta;
-    var targetDelta = 15;
-    if (accumulatedDelta > targetDelta * 4) {
-        // Cap the accumulated delta. Avoid an unbounded number of updates. Slow down game.
-        accumulatedDelta = targetDelta * 4;
-    }
-
-    while (accumulatedDelta >= targetDelta) {
-        accumulatedDelta -= targetDelta;
-        checkCollisions();
-        
-        if (leftDown) direction -= .08;
-        if (rightDown) direction += .08;
-        document.getElementById("showDir").value = direction;
-
-        applySnakeRotation();
-    }
-    render();
-    if (PAUSED) {
-        //block the animationframe
-        return;
-    } else {
-        window.requestAnimationFrame(update);
-    }
-}
-
-function drawNodePoint(proj, radius, red, blue, alphaMultiplier=1.0) {
-    var r = Math.max(1.0, focalLength * (radius / proj.depth));
-    var depthColor = Math.floor(Math.max(40, 255 - (proj.depth / 6.0) * 200));
-    var alpha = Math.min(1.0, Math.max(0.1, (1 - (proj.depth - cameraDistance) / 4.0) * alphaMultiplier));
-    ctx.fillStyle = "rgba(" + red + ", " + blue + ", " + depthColor + ", " + alpha + ")";
-    ctx.beginPath();
-    ctx.arc(proj.sx, proj.sy, r, 0, Math.PI * 2);
-    ctx.fill();
-}
-
-function renderAngleDir(direction_, strokeStyle="#FFF") {
-    // `green` means "are we drawing the toggle stored angle at `orDir` or not?"
-    ctx.beginPath();
-    ctx.moveTo(centerX, centerY);
-    var r = (NODE_RADIUS * focalLength / cameraDistance) * 2.2;
-    ctx.lineTo(centerX + Math.cos(direction_) * r,
-        centerY + Math.sin(direction_) * r);
-    ctx.strokeStyle = strokeStyle;
-    ctx.lineWidth = 3;
-    ctx.stroke();
-}
-
-function render() {
-    ctx.clearRect(0, 0, width, height);
-
-    var head = snake[0];
-    var headPos = torusPoint(head.u, head.v);
-    var headFrame = torusFrame(head.u, head.v);
-
-    // Project background grid dots
-    var farDots = [];
-    var nearDots = [];
-    for (var i = 0; i < points.length; i++) {
-        var pt = points[i];
-        var proj = projectTorusPoint(pt.u, pt.v, headPos, headFrame);
-        if (proj.dotNorm > 0) nearDots.push(proj);
-        else farDots.push(proj);
-    }
-
-    // 1. Draw far background dots
-    for (var i = 0; i < farDots.length; i++) {
-        var d = farDots[i];
-        var alpha = Math.max(0.06, 0.28 - d.depth / 9.0);
-        var r = Math.max(0.6, focalLength * (0.0035 / d.depth));
-        ctx.fillStyle = "rgba(120, 140, 160, " + alpha + ")";
-        ctx.beginPath();
-        ctx.arc(d.sx, d.sy, r, 0, Math.PI * 2);
-        ctx.fill();
-    }
-
-    // Prepare snake nodes projection
-    var snakeDrawList = [];
-    for (var i = 0; i < snake.length; i++) {
-        var proj = projectTorusPoint(snake[i].u, snake[i].v, headPos, headFrame);
-        /* the first 6 andor 7 nodes don't self-collide.
-        this fixes the instakills caused by the toggle-fix toggle control.
-        this 7 (strict less than) pellets get a blue hue.
-        and the last one ("the neck") gets marked specially */
-        let blue;
-        if (i < snake_head_size - 1) blue = 80;
-        else if (i == snake_head_size - 1) blue = 180;
-        else blue = 0;
-        snakeDrawList.push({
-            index: i,
-            proj: proj,
-            blue: blue,
-            red: 120
-        });
-    }
-
-    // Pellet projection
-    var pelletProj = projectTorusPoint(pellet.u, pellet.v, headPos, headFrame);
-
-    // 2. Draw far snake nodes and far pellet
-    for (var i = 0; i < snakeDrawList.length; i++) {
-        var item = snakeDrawList[i];
-        if (item.proj.dotNorm <= 0) {
-            drawNodePoint(item.proj, NODE_RADIUS, item.red, item.blue, 0.45);
-        }
-    }
-    if (pelletProj.dotNorm <= 0) {
-        drawNodePoint(pelletProj, NODE_RADIUS, 0, 0, 0.45);
-    }
-
-    // 3. Draw near background dots
-    for (var i = 0; i < nearDots.length; i++) {
-        var d = nearDots[i];
-        var alpha = Math.max(0.18, 0.85 - d.depth / 7.0);
-        var r = Math.max(1.0, focalLength * (0.0045 / d.depth));
-        var depthColor = Math.floor(Math.max(20, 200 - (d.depth / 6.0) * 180));
-        ctx.fillStyle = "rgba(" + depthColor + ", " + depthColor + ", " + (depthColor + 30) + ", " + alpha + ")";
-        ctx.beginPath();
-        ctx.arc(d.sx, d.sy, r, 0, Math.PI * 2);
-        ctx.fill();
-    }
-
-    // 4. Draw near snake nodes sorted by depth (furthest near-side first, head last)
-    var nearSnake = [];
-    for (var i = 0; i < snakeDrawList.length; i++) {
-        if (snakeDrawList[i].proj.dotNorm > 0) nearSnake.push(snakeDrawList[i]);
-    }
-    nearSnake.sort(function(a, b) { return b.proj.depth - a.proj.depth; });
-    for (var i = 0; i < nearSnake.length; i++) {
-        var item = nearSnake[i];
-        drawNodePoint(item.proj, NODE_RADIUS, item.red, item.blue, 1.0);
-    }
-
-    // 5. Draw near pellet
-    if (pelletProj.dotNorm > 0) {
-        drawNodePoint(pelletProj, NODE_RADIUS, 0, 0, 1.0);
-    }
-
-    // 6. Draw angle & direction arrows
-    renderAngleDir(direction);
-    // draw "next" toggle/untoggle original-Direction angle
-    if (toggledTheDir) {
-        var color = "#48E56C"; //green
-        renderAngleDir(orDir, color);
-        var r = (NODE_RADIUS * focalLength / cameraDistance) * 2.2;
-        ctx.beginPath();
-        ctx.arc(
-            centerX + Math.cos(direction) * r,
-            centerY + Math.sin(direction) * r,
-            10, 0, Math.PI, false);  //with `false` the + green direction looks forwards ->
-        ctx.fillStyle = color;
-        ctx.lineWidth = 1;
-        ctx.fill();
-    } else {
-        var color = "#FF7851"; //red
-        renderAngleDir(orDir, color);
-        var r = (NODE_RADIUS * focalLength / cameraDistance) * 2.2;
-        ctx.beginPath();
-        ctx.arc(
-            centerX + Math.cos(orDir) * r,
-            centerY + Math.sin(orDir) * r,
-            20, direction, direction+Math.PI, true);
-        ctx.fillStyle = color;
-        ctx.lineWidth = 1;
-        ctx.fill();
-    }
-}
-
-function applySnakeRotation() {
+function applySnakeRotationTorus() {
     var head = snake[0];
     var cosD = Math.cos(direction);
     var sinD = Math.sin(direction);
 
-    // Torus metric: ds^2 = (R + r*cos(v))^2 du^2 + r^2 dv^2
+    // Torus Riemannian metric: ds^2 = (R + r*cos(v))^2 du^2 + r^2 dv^2
     var du = (snakeVelocity * cosD) / (TORUS_R + TORUS_r * Math.cos(head.v));
     var dv = (snakeVelocity * sinD) / TORUS_r;
 
@@ -628,13 +633,12 @@ function applySnakeRotation() {
             snake[i].u = nextPos.u;
             snake[i].v = nextPos.v;
         }
-
         snake[i].posQueue.unshift(oldPos);
         nextPos = snake[i].posQueue.pop();
     }
 }
 
-function collision(a, b) {
+function collisionTorus(a, b) {
     var pA = torusPoint(a.u, a.v);
     var pB = torusPoint(b.u, b.v);
     var dist = Math.sqrt(
@@ -645,13 +649,175 @@ function collision(a, b) {
     return dist < collisionDistance;
 }
 
+function drawNodePointTorus(proj, radius, red, blue, alphaMultiplier = 1.0) {
+    var r = Math.max(1.0, focalLength * (radius / proj.depth));
+    var depthColor = Math.floor(Math.max(40, 255 - (proj.depth / 6.0) * 200));
+    var alpha = Math.min(1.0, Math.max(0.1, (1 - (proj.depth - cameraDistance) / 4.0) * alphaMultiplier));
+    ctx.fillStyle = "rgba(" + red + ", " + blue + ", " + depthColor + ", " + alpha + ")";
+    ctx.beginPath();
+    ctx.arc(proj.sx, proj.sy, r, 0, Math.PI * 2);
+    ctx.fill();
+}
+
+function renderTorus() {
+    ctx.clearRect(0, 0, width, height);
+
+    var head = snake[0];
+    var headPos = torusPoint(head.u, head.v);
+    var headFrame = torusFrame(head.u, head.v);
+
+    // Project background grid dots
+    var farDots = [];
+    var nearDots = [];
+    for (var i = 0; i < points.length; i++) {
+        var pt = points[i];
+        var proj = projectTorusPoint(pt.u, pt.v, headPos, headFrame);
+        if (proj.dotNorm > 0) nearDots.push(proj);
+        else farDots.push(proj);
+    }
+
+    // 1. Far background dots
+    for (var i = 0; i < farDots.length; i++) {
+        var d = farDots[i];
+        var alpha = Math.max(0.06, 0.28 - d.depth / 9.0);
+        var r = Math.max(0.6, focalLength * (0.0035 / d.depth));
+        ctx.fillStyle = "rgba(120, 140, 160, " + alpha + ")";
+        ctx.beginPath();
+        ctx.arc(d.sx, d.sy, r, 0, Math.PI * 2);
+        ctx.fill();
+    }
+
+    // Prepare snake nodes projection
+    var snakeDrawList = [];
+    for (var i = 0; i < snake.length; i++) {
+        var proj = projectTorusPoint(snake[i].u, snake[i].v, headPos, headFrame);
+        let blue;
+        if (i < snake_head_size - 1) blue = 80;
+        else if (i === snake_head_size - 1) blue = 180;
+        else blue = 0;
+        snakeDrawList.push({
+            index: i,
+            proj: proj,
+            blue: blue,
+            red: 120
+        });
+    }
+
+    // Pellet projection
+    var pelletProj = projectTorusPoint(pellet.u, pellet.v, headPos, headFrame);
+
+    // 2. Far snake nodes and far pellet
+    for (var i = 0; i < snakeDrawList.length; i++) {
+        var item = snakeDrawList[i];
+        if (item.proj.dotNorm <= 0) {
+            drawNodePointTorus(item.proj, TORUS_NODE_RADIUS, item.red, item.blue, 0.45);
+        }
+    }
+    if (pelletProj.dotNorm <= 0) {
+        drawNodePointTorus(pelletProj, TORUS_NODE_RADIUS, 0, 0, 0.45);
+    }
+
+    // 3. Near background dots
+    for (var i = 0; i < nearDots.length; i++) {
+        var d = nearDots[i];
+        var alpha = Math.max(0.18, 0.85 - d.depth / 7.0);
+        var r = Math.max(1.0, focalLength * (0.0045 / d.depth));
+        var depthColor = Math.floor(Math.max(20, 200 - (d.depth / 6.0) * 180));
+        ctx.fillStyle = "rgba(" + depthColor + ", " + depthColor + ", " + (depthColor + 30) + ", " + alpha + ")";
+        ctx.beginPath();
+        ctx.arc(d.sx, d.sy, r, 0, Math.PI * 2);
+        ctx.fill();
+    }
+
+    // 4. Near snake nodes sorted by depth
+    var nearSnake = [];
+    for (var i = 0; i < snakeDrawList.length; i++) {
+        if (snakeDrawList[i].proj.dotNorm > 0) nearSnake.push(snakeDrawList[i]);
+    }
+    nearSnake.sort(function(a, b) { return b.proj.depth - a.proj.depth; });
+    for (var i = 0; i < nearSnake.length; i++) {
+        var item = nearSnake[i];
+        drawNodePointTorus(item.proj, TORUS_NODE_RADIUS, item.red, item.blue, 1.0);
+    }
+
+    // 5. Near pellet
+    if (pelletProj.dotNorm > 0) {
+        drawNodePointTorus(pelletProj, TORUS_NODE_RADIUS, 0, 0, 1.0);
+    }
+
+    // 6. Angle & direction arrows
+    renderAngleDir(direction);
+    var r = (TORUS_NODE_RADIUS * focalLength / cameraDistance) * 2.2;
+    if (toggledTheDir) {
+        var color = "#48E56C"; // green
+        renderAngleDir(orDir, color);
+        ctx.beginPath();
+        ctx.arc(
+            centerX + Math.cos(direction) * r,
+            centerY + Math.sin(direction) * r,
+            10, 0, Math.PI, false);
+        ctx.fillStyle = color;
+        ctx.lineWidth = 1;
+        ctx.fill();
+    } else {
+        var color = "#FF7851"; // red
+        renderAngleDir(orDir, color);
+        ctx.beginPath();
+        ctx.arc(
+            centerX + Math.cos(orDir) * r,
+            centerY + Math.sin(orDir) * r,
+            20, direction, direction + Math.PI, true);
+        ctx.fillStyle = color;
+        ctx.lineWidth = 1;
+        ctx.fill();
+    }
+}
+
+// ==========================================
+// SHARED GAME ROUTINES
+// ==========================================
+
+function addSnakeNode() {
+    if (currentStage === 'sphere') addSnakeNodeSphere();
+    else addSnakeNodeTorus();
+}
+
+function regeneratePellet() {
+    if (currentStage === 'sphere') regeneratePelletSphere();
+    else regeneratePelletTorus();
+}
+
+function collision(a, b) {
+    if (currentStage === 'sphere') return collisionSphere(a, b);
+    return collisionTorus(a, b);
+}
+
+function renderAngleDir(direction_, strokeStyle="#FFF") {
+    ctx.beginPath();
+    ctx.moveTo(centerX, centerY);
+    var r = (currentStage === 'sphere')
+        ? (SPHERE_NODE_ANGLE / 2 * focalLength * 2.2)
+        : ((TORUS_NODE_RADIUS * focalLength / cameraDistance) * 2.2);
+    ctx.lineTo(
+        centerX + Math.cos(direction_) * r,
+        centerY + Math.sin(direction_) * r
+    );
+    ctx.strokeStyle = strokeStyle;
+    ctx.lineWidth = 3;
+    ctx.stroke();
+}
+
+function render() {
+    if (currentStage === 'sphere') renderSphere();
+    else if (currentStage === 'torus') renderTorus();
+}
+
 function checkCollisions(skip = 6) {
-    for (var i = 2 + (snake_head_size - 2 /*why -2? so it (=8) equals `skip=6`*/); i < snake.length; i++) {
-         if (collision(snake[0], snake[i])) {
-             snakeCrash(i);
-             // leaderboard.setScore(score);
-             return;
-         }
+    for (var i = 2 + (snake_head_size - 2); i < snake.length; i++) {
+        if (collision(snake[0], snake[i])) {
+            snakeCrash(i);
+            return;
+        }
     }
     if (collision(snake[0], pellet)) {
         regeneratePellet();
@@ -659,37 +825,206 @@ function checkCollisions(skip = 6) {
         incrementScore();
     }
 }
+
 function snakeCrash(pelletNum) {
-    /* a Score must be computed.
-    a Crash splits the snake into closed-loop side and the other side with the tail. */
-    // all pelletNum go with +1 viceversa from all snake.length-1 ; ignore head node.
-    const collision = pelletNum+1; // i.e. "left-over" snake
-    let remainder = snake.length-collision;
+    const collisionPt = pelletNum + 1;
+    let remainder = snake.length - collisionPt;
+    let snake_half = Math.trunc((snake.length - 1 - snake_head_size) / 2);
 
-    let parity = snake.length-1 - snake_head_size % 2;
-    let snake_half = Math.trunc((snake.length-1 - snake_head_size) / 2);
-
-    console.log("collision@", collision);
+    console.log("collision@", collisionPt);
     console.log("snake:", snake.length, snake);
-    // console.log("parity", parity?'odd':'even');
     console.log("snake_half", snake_half);
     console.log("remainder. tail:", remainder);
+    console.log("VERDICT", collisionPt > (snake.length - 1 - remainder) ? "lives" : "dies");
 
-    console.log("VEREDICT", collision > (snake.length-1-remainder) ? "lives":"dies" );
     showEnd();
 }
 
-function autoRun() {
-    // disable controls
-    // loop the rotations remaking the snake
-
-}
-
 function showEnd() {
-    // document.getElementsByTagName('body')[0].style = 'background: #E8E8E8';
-    document.getElementById('gg').style = 'display:block';
+    document.getElementById('gg').style.display = 'block';
     stopped = true;
     window.removeEventListener('keydown', handlePAUSE);
+}
+
+function update() {
+    if (stopped || !gameStarted || isStageSelectOpen) return;
+    var curr = Date.now();
+    var delta = curr - clock;
+    clock = curr;
+
+    accumulatedDelta += delta;
+    var targetDelta = 15;
+    if (accumulatedDelta > targetDelta * 4) {
+        accumulatedDelta = targetDelta * 4;
+    }
+
+    while (accumulatedDelta >= targetDelta) {
+        accumulatedDelta -= targetDelta;
+        checkCollisions();
+        if (stopped) break;
+
+        if (leftDown) direction -= .08;
+        if (rightDown) direction += .08;
+        document.getElementById("showDir").value = direction;
+
+        if (currentStage === 'sphere') {
+            applySnakeRotationSphere();
+            rotateZ(-direction);
+            rotateY(-snakeVelocity);
+            rotateZ(direction);
+        } else {
+            applySnakeRotationTorus();
+        }
+    }
+
+    render();
+
+    if (PAUSED) {
+        return;
+    } else if (!stopped) {
+        animFrameId = window.requestAnimationFrame(update);
+    }
+}
+
+// Stage Initialization
+function startGame(stage) {
+    currentStage = stage;
+    gameStarted = true;
+    isStageSelectOpen = false;
+    stopped = false;
+    PAUSED = false;
+    score = 0;
+    accumulatedDelta = 0;
+    clock = Date.now();
+
+    stageSelectOverlay.style.display = 'none';
+    document.getElementById('gg').style.display = 'none';
+    document.getElementById('paused').style.display = 'none';
+
+    leftDown = false;
+    rightDown = false;
+    slowDown = false;
+    btnMoveLeft.classList.remove("down");
+    btnMoveRight.classList.remove("down");
+    btnMoveUp.classList.remove("down");
+    btnToggleDir.classList.remove("down");
+
+    toggledTheDir = false;
+    document.getElementById("fixDir").checked = toggledTheDir;
+
+    window.removeEventListener('keydown', handlePAUSE);
+    window.addEventListener('keydown', handlePAUSE);
+
+    if (currentStage === 'sphere') {
+        focalLength = SPHERE_FOCAL_LENGTH;
+        collisionDistance = SPHERE_COLLISION_DISTANCE;
+        STARTING_DIRECTION = 4 * Math.random();
+        direction = STARTING_DIRECTION;
+        orDir = direction;
+        snakeVelocity = SPHERE_NODE_ANGLE * 2 / (NODE_QUEUE_SIZE + 1);
+
+        // Generate sphere grid dots
+        points = [];
+        var n = 52;
+        for (var i = 0; i < n; i++) {
+            for (var j = 0; j < n; j++) {
+                points.push(
+                    pointFromSpherical(i / n * Math.PI * 2, j / n * Math.PI)
+                );
+            }
+        }
+
+        // Initialize sphere snake
+        snake = [];
+        for (var i = 0; i < snake_head_size; i++) {
+            addSnakeNodeSphere();
+        }
+
+        regeneratePelletSphere();
+    } else {
+        // Torus stage
+        focalLength = TORUS_FOCAL_LENGTH;
+        cameraDistance = TORUS_CAMERA_DISTANCE;
+        collisionDistance = TORUS_COLLISION_DISTANCE;
+        STARTING_DIRECTION = TORUS_STARTING_DIRECTION;
+        direction = STARTING_DIRECTION;
+        orDir = direction;
+        snakeVelocity = TORUS_NODE_RADIUS * 2 / (NODE_QUEUE_SIZE + 1);
+
+        // Generate torus grid dots
+        points = [];
+        var nU = 60;
+        var nV = 32;
+        for (var i = 0; i < nU; i++) {
+            for (var j = 0; j < nV; j++) {
+                points.push({
+                    u: (i / nU) * Math.PI * 2,
+                    v: (j / nV) * Math.PI * 2
+                });
+            }
+        }
+
+        // Initialize torus snake with backward history
+        var u0 = 0;
+        var v0 = 0;
+        var history = [{ u: u0, v: v0 }];
+        var currU = u0, currV = v0;
+        var dirBack = STARTING_DIRECTION + Math.PI;
+        var cosB = Math.cos(dirBack), sinB = Math.sin(dirBack);
+        var totalSteps = snake_head_size * (NODE_QUEUE_SIZE + 1);
+        for (var s = 0; s < totalSteps; s++) {
+            var du = (snakeVelocity * cosB) / (TORUS_R + TORUS_r * Math.cos(currV));
+            var dv = (snakeVelocity * sinB) / TORUS_r;
+            currU = (currU + du) % (Math.PI * 2);
+            if (currU < 0) currU += Math.PI * 2;
+            currV = (currV + dv) % (Math.PI * 2);
+            if (currV < 0) currV += Math.PI * 2;
+            history.push({ u: currU, v: currV });
+        }
+
+        snake = [];
+        for (var i = 0; i < snake_head_size; i++) {
+            var idx = i * (NODE_QUEUE_SIZE + 1);
+            var pos = history[idx];
+            var q = [];
+            for (var k = 0; k < NODE_QUEUE_SIZE; k++) {
+                q.push(history[idx + 1 + k]);
+            }
+            snake.push({
+                u: pos.u,
+                v: pos.v,
+                posQueue: q
+            });
+        }
+
+        regeneratePelletTorus();
+    }
+
+    updateScoreDisplay();
+    document.getElementById("showDir").value = direction;
+    document.getElementById("show-dir1").innerText = orDir.toFixed(1);
+    document.getElementById("show-dir4").innerText = orDir.toFixed(4);
+
+    if (animFrameId) {
+        window.cancelAnimationFrame(animFrameId);
+    }
+    animFrameId = window.requestAnimationFrame(update);
+}
+
+// Initial page setup: ready canvas and show stage select screen
+function init() {
+    cnv = document.getElementsByTagName('canvas')[0];
+    ctx = cnv.getContext('2d');
+    width = cnv.width;
+    height = cnv.height;
+    centerX = width / 2;
+    centerY = height / 2;
+
+    // Draw idle aesthetic background on canvas
+    ctx.fillStyle = "#0c1524";
+    ctx.fillRect(0, 0, width, height);
+
+    openStageSelect();
 }
 
 init();
