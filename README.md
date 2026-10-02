@@ -1,17 +1,22 @@
-# Spherical Snake
+# Torus Snake (formerly Spherical Snake)
 
-Based on original "Snake game on a sphere" by Kevin Albertson (c) 2016. MIT Licensed. this is my forked version of the necessary "MIT copypasta disclaimer" requirement.
+Based on original "Snake game on a sphere" by Kevin Albertson (c) 2016. MIT Licensed. Forked and expanded by naringas.
 
 TODO: update gameplay webm/gif
 
 # Main changes
 
-The snake cannot "bite its own head". hence there's a Cyan "neck"-pellet of the snake which marks the start of collision enabled snake body.
+The game is played on a **3D Torus** (donut) embedded in 3-space:
+- Intrinsic toroidal coordinates $(u, v)$ with physical speed normalization via Riemannian metric $ds^2 = (R + r \cos v)^2 du^2 + r^2 dv^2$.
+- Centered dynamic tracking: the torus rolls and tumbles under the snake, keeping the head at screen center facing the viewer via the local Darboux orthonormal frame.
+- Depth sorting and 3D occlusion: the snake winds around the outer tube, dives through the donut hole, and wraps behind the far side.
+- The snake cannot "bite its own head" — cyan "neck"-pellet marks the start of self-collision enabled body.
 
 
 ## Summary of changes
 
-- Game canvas is bigger. Various parameters were tweaked by hand to achieve this.
+- 3D Torus geometry with major radius $R=1.0$ and tube radius $r=0.45$.
+- Game canvas is bigger (800x800). Various parameters tweaked by hand.
 - Pause with space bar.
 - "WASD" controls.
 - Speed UP TURBO with Forwards. [🇼] or Up arrow

@@ -1,16 +1,18 @@
 /*
-`GAME_SIZE` sets the number of "NODE_ANGLE"s that define "virtual PI"
-or the number of TOTAL snake pellets to fill up one circumference of game world. */
-const GAME_SIZE = 70;
-
-// Angle representing the radius of one snake node.
-var NODE_ANGLE = Math.PI / GAME_SIZE;
+Torus geometry parameters:
+TORUS_R: major radius (distance from center of donut hole to center of tube)
+TORUS_r: minor radius (radius of the tube)
+NODE_RADIUS: physical radius of a snake pellet on the torus surface
+*/
+const TORUS_R = 1.0;
+const TORUS_r = 0.5;
+const NODE_RADIUS = 0.054;
 
 // This is the number of positions stored in the node queue.
 // This determines the velocity.
 var NODE_QUEUE_SIZE = 8;
 
-var STARTING_DIRECTION = 4*Math.random();
+var STARTING_DIRECTION = (Math.sqrt(5) - 1) / 2;
 var PAUSED = false;
 
 var cnv, ctx, width, height, centerX, centerY, points, stopped;
@@ -27,14 +29,15 @@ var pellet;
 
 var snakeVelocity;
 
-// The straight distance required to have two nodes colliding.
-// To derive, draw a triangle from the sphere origin of angle 2 * NODE_ANGLE.
-var collisionDistance = 1.999999900005 * Math.sin(NODE_ANGLE);
+// Straight 3D distance required to have two nodes colliding.
+var collisionDistance = 1.9 * NODE_RADIUS;
 
-// The angle of the current snake direction in radians.
+// The angle of the current snake direction on the torus tangent plane in radians.
+// 0 = East (+u, along major circle), PI/2 = South (+v, along minor tube circle)
 var direction = STARTING_DIRECTION;
 
-var focalLength = 500;
+var focalLength = 550;
+var cameraDistance = 3.2;
 
 var leftDown, rightDown;
 var slowDown;
@@ -67,7 +70,7 @@ const btnMoveUp = document.querySelector("#move_forwards");
 function setTurbo(turbo) {
     if (turbo) btnMoveUp.classList.add("down");
     else btnMoveUp.classList.remove("down");
-    snakeVelocity = NODE_ANGLE * 2 / (NODE_QUEUE_SIZE + 1) * (turbo ? 1.75 : 1.0);
+    snakeVelocity = NODE_RADIUS * 2 / (NODE_QUEUE_SIZE + 1) * (turbo ? 1.75 : 1.0);
 }
 
 const btnToggleDir = document.querySelector("#toggle_direction");
@@ -251,63 +254,111 @@ document.querySelector("#refresh").addEventListener("click", restartGame)
 
 
 function regeneratePellet() {
-    pellet = pointFromSpherical(Math.random() * Math.PI * 2, Math.random() * Math.PI);
+    // Rejection sampling for uniform surface area distribution on torus: dA = r * (R + r * cos(v)) du dv
+    var u, v;
+    while (true) {
+        u = Math.random() * Math.PI * 2;
+        v = Math.random() * Math.PI * 2;
+        var maxDensity = TORUS_R + TORUS_r;
+        var density = TORUS_R + TORUS_r * Math.cos(v);
+        if (Math.random() * maxDensity <= density) {
+            break;
+        }
+    }
+    pellet = { u: u, v: v };
 }
 
-function pointFromSpherical(theta, phi) {
-    var sinPhi = Math.sin(phi);
+// Local 3D point on torus for given toroidal coordinates (u, v)
+function torusPoint(u, v) {
+    var cosV = Math.cos(v);
+    var sinV = Math.sin(v);
+    var cosU = Math.cos(u);
+    var sinU = Math.sin(u);
     return {
-        x: Math.cos(theta) * sinPhi,
-        y: Math.sin(theta) * sinPhi,
-        z: Math.cos(phi)
+        x: (TORUS_R + TORUS_r * cosV) * cosU,
+        y: (TORUS_R + TORUS_r * cosV) * sinU,
+        z: TORUS_r * sinV
     };
 }
 
-function copyPoint(src, dest) {
-    if (!dest) dest = {};
-    dest.x = src.x;
-    dest.y = src.y;
-    dest.z = src.z;
-    return dest;
+// Outward unit normal vector on torus at (u, v)
+function torusNormal(u, v) {
+    var cosV = Math.cos(v);
+    var sinV = Math.sin(v);
+    var cosU = Math.cos(u);
+    var sinU = Math.sin(u);
+    return {
+        x: cosV * cosU,
+        y: cosV * sinU,
+        z: sinV
+    };
+}
+
+// Orthonormal Darboux frame {Tu, Tv, N} on torus at (u, v)
+// Tu: unit tangent along major circle (East / +u)
+// Tv: unit tangent along minor circle (South / +v)
+// N: outward unit normal (Tu x Tv = N)
+function torusFrame(u, v) {
+    var cosV = Math.cos(v);
+    var sinV = Math.sin(v);
+    var cosU = Math.cos(u);
+    var sinU = Math.sin(u);
+    var Tu = { x: -sinU, y: cosU, z: 0 };
+    var Tv = { x: -sinV * cosU, y: -sinV * sinU, z: cosV };
+    var N = { x: cosV * cosU, y: cosV * sinU, z: sinV };
+    return { Tu: Tu, Tv: Tv, N: N };
+}
+
+function dot3D(a, b) {
+    return a.x * b.x + a.y * b.y + a.z * b.z;
+}
+
+// Project point (u, v) to camera space using Darboux frame at head
+function projectTorusPoint(u, v, headPos, headFrame) {
+    var p = torusPoint(u, v);
+    var np = torusNormal(u, v);
+    var dp = {
+        x: p.x - headPos.x,
+        y: p.y - headPos.y,
+        z: p.z - headPos.z
+    };
+    var xcam = dot3D(dp, headFrame.Tu);
+    var ycam = dot3D(dp, headFrame.Tv);
+    var zcam = -dot3D(dp, headFrame.N); // into screen
+    var depth = zcam + cameraDistance;
+
+    // Normal dot product with head normal: > 0 means front-facing surface
+    var dotNorm = dot3D(np, headFrame.N);
+
+    var sx = centerX + focalLength * (xcam / depth);
+    var sy = centerY + focalLength * (ycam / depth);
+
+    return {
+        sx: sx,
+        sy: sy,
+        depth: depth,
+        dotNorm: dotNorm,
+        p: p
+    };
 }
 
 function addSnakeNode() {
-    var snakeNode = {
-        x: 0, y: 0, z: -1, posQueue: []
+    var last = snake[snake.length - 1];
+    var lastPos = last.posQueue[NODE_QUEUE_SIZE - 1];
+    var newNode = {
+        u: lastPos.u,
+        v: lastPos.v,
+        posQueue: []
     };
-    for (var i = 0; i < NODE_QUEUE_SIZE; i++) snakeNode.posQueue.push(null);
-    if (snake.length > 0) {
-        // Position the new node "behind" the last node.
-        var last = snake[snake.length-1];
-        var lastPos = last.posQueue[NODE_QUEUE_SIZE - 1];
-
-        // TODO: if nodes are added too quickly (possible if snake collides with two
-        // pellets quickly) then this doesn't look natural.
-
-        // If the last node doesn't yet have a full history the default is
-        // to rotate along starting direction.
-        if (lastPos === null) {
-            copyPoint(last, snakeNode);
-            rotateZ(-STARTING_DIRECTION, snakeNode);
-            rotateY(-NODE_ANGLE * 2, snakeNode);
-            rotateZ(STARTING_DIRECTION, snakeNode);
-        } else {
-            copyPoint(lastPos, snakeNode);
-        }
+    for (var i = 0; i < NODE_QUEUE_SIZE; i++) {
+        newNode.posQueue.push({ u: lastPos.u, v: lastPos.v });
     }
-    snake.push(snakeNode);
+    snake.push(newNode);
 }
 
 function incrementScore() {
     score += 1;
     document.querySelector("#score").innerHTML = "Score: " + score;
-}
-
-function allPoints() {
-    var allPoints = [pellet].concat(points).concat(snake);
-    for (var i = 0; i < snake.length; i++)
-        allPoints = allPoints.concat(snake[i].posQueue);
-    return allPoints;
 }
 
 function init() {
@@ -321,22 +372,60 @@ function init() {
     clock = Date.now();
     leftDown = false;
     rightDown = false;
-    regeneratePellet();
 
     toggledTheDir = false;
     document.getElementById("fixDir").checked = toggledTheDir;
 
-    // The +1 is necessary since the queue excludes the current position.
-    snakeVelocity = NODE_ANGLE * 2 / (NODE_QUEUE_SIZE + 1);
-    var n = 52;
-    for (var i = 0; i < n; i++) {
-        for (var j = 0; j < n; j++) {
-            points.push(
-                pointFromSpherical(i / n * Math.PI * 2, j / n * Math.PI));
+    snakeVelocity = (NODE_RADIUS * 2) / (NODE_QUEUE_SIZE + 1);
+
+    // Generate grid dots covering the 3D torus
+    var nU = 60;
+    var nV = 32;
+    for (var i = 0; i < nU; i++) {
+        for (var j = 0; j < nV; j++) {
+            points.push({
+                u: (i / nU) * Math.PI * 2,
+                v: (j / nV) * Math.PI * 2
+            });
         }
     }
+
+    // Initialize head at outer equator
+    var u0 = 0;
+    var v0 = 0;
+
+    // Generate backward history for initial snake nodes
+    var history = [{ u: u0, v: v0 }];
+    var currU = u0, currV = v0;
+    var dirBack = STARTING_DIRECTION + Math.PI;
+    var cosB = Math.cos(dirBack), sinB = Math.sin(dirBack);
+    var totalSteps = snake_head_size * (NODE_QUEUE_SIZE + 1);
+    for (var s = 0; s < totalSteps; s++) {
+        var du = (snakeVelocity * cosB) / (TORUS_R + TORUS_r * Math.cos(currV));
+        var dv = (snakeVelocity * sinB) / TORUS_r;
+        currU = (currU + du) % (Math.PI * 2);
+        if (currU < 0) currU += Math.PI * 2;
+        currV = (currV + dv) % (Math.PI * 2);
+        if (currV < 0) currV += Math.PI * 2;
+        history.push({ u: currU, v: currV });
+    }
+
     snake = [];
-    for (var i = 0; i < snake_head_size; i++) addSnakeNode();
+    for (var i = 0; i < snake_head_size; i++) {
+        var idx = i * (NODE_QUEUE_SIZE + 1);
+        var pos = history[idx];
+        var q = [];
+        for (var k = 0; k < NODE_QUEUE_SIZE; k++) {
+            q.push(history[idx + 1 + k]);
+        }
+        snake.push({
+            u: pos.u,
+            v: pos.v,
+            posQueue: q
+        });
+    }
+
+    regeneratePellet();
 
     window.requestAnimationFrame(update);
 }
@@ -363,9 +452,6 @@ function update() {
         document.getElementById("showDir").value = direction;
 
         applySnakeRotation();
-        rotateZ(-direction);
-        rotateY(-snakeVelocity);
-        rotateZ(direction);
     }
     render();
     if (PAUSED) {
@@ -376,71 +462,125 @@ function update() {
     }
 }
 
-// Radius is given in angle and is drawn based on depth.
-function drawPoint(point, radius, red, blue=0) {
-    var p = copyPoint(point);
-
-    // Translate so that sphere origin is (0, 0, 2).
-    p.z += 2;
-
-    // This orients it so z axis is more negative the closer to you it is,
-    // the x axis is to negative to the right, and the y axis is positive up.
-
-    // Project.
-    p.x *= -1 * focalLength / p.z;
-    p.y *= -1 * focalLength / p.z;
-    radius *= focalLength / p.z;
-
-    p.x += centerX;
-    p.y += centerY;
-
-    ctx.beginPath();
-
-    // Transparent based on depth.
-    var alpha = 1 - (p.z - 1) / 2;
-    // Color based on depth.
-    var depthColor = 255 - Math.floor((p.z - 1) / 2 * 255);
+function drawNodePoint(proj, radius, red, blue, alphaMultiplier=1.0) {
+    var r = Math.max(1.0, focalLength * (radius / proj.depth));
+    var depthColor = Math.floor(Math.max(40, 255 - (proj.depth / 6.0) * 200));
+    var alpha = Math.min(1.0, Math.max(0.1, (1 - (proj.depth - cameraDistance) / 4.0) * alphaMultiplier));
     ctx.fillStyle = "rgba(" + red + ", " + blue + ", " + depthColor + ", " + alpha + ")";
-    ctx.arc(p.x, p.y, radius, 0, Math.PI * 2);
+    ctx.beginPath();
+    ctx.arc(proj.sx, proj.sy, r, 0, Math.PI * 2);
     ctx.fill();
 }
+
 function renderAngleDir(direction_, strokeStyle="#FFF") {
     // `green` means "are we drawing the toggle stored angle at `orDir` or not?"
     ctx.beginPath();
     ctx.moveTo(centerX, centerY);
-    var r = NODE_ANGLE / 2 * focalLength * 2.2;
+    var r = (NODE_RADIUS * focalLength / cameraDistance) * 2.2;
     ctx.lineTo(centerX + Math.cos(direction_) * r,
         centerY + Math.sin(direction_) * r);
-    ctx.strokeStyle = strokeStyle;//(!green) ? "#FFF" : (direction_ ? "#FF1493");  //lazy hackass logic
-    ctx.lineWidth = 3;// (!green) ? 3 : 1;
+    ctx.strokeStyle = strokeStyle;
+    ctx.lineWidth = 3;
     ctx.stroke();
 }
+
 function render() {
     ctx.clearRect(0, 0, width, height);
-    for(var i = 0; i < points.length; i++) {
-        drawPoint(points[i], 1 / 360, 0);
+
+    var head = snake[0];
+    var headPos = torusPoint(head.u, head.v);
+    var headFrame = torusFrame(head.u, head.v);
+
+    // Project background grid dots
+    var farDots = [];
+    var nearDots = [];
+    for (var i = 0; i < points.length; i++) {
+        var pt = points[i];
+        var proj = projectTorusPoint(pt.u, pt.v, headPos, headFrame);
+        if (proj.dotNorm > 0) nearDots.push(proj);
+        else farDots.push(proj);
     }
+
+    // 1. Draw far background dots
+    for (var i = 0; i < farDots.length; i++) {
+        var d = farDots[i];
+        var alpha = Math.max(0.06, 0.28 - d.depth / 9.0);
+        var r = Math.max(0.6, focalLength * (0.0035 / d.depth));
+        ctx.fillStyle = "rgba(120, 140, 160, " + alpha + ")";
+        ctx.beginPath();
+        ctx.arc(d.sx, d.sy, r, 0, Math.PI * 2);
+        ctx.fill();
+    }
+
+    // Prepare snake nodes projection
+    var snakeDrawList = [];
     for (var i = 0; i < snake.length; i++) {
+        var proj = projectTorusPoint(snake[i].u, snake[i].v, headPos, headFrame);
         /* the first 6 andor 7 nodes don't self-collide.
         this fixes the instakills caused by the toggle-fix toggle control.
         this 7 (strict less than) pellets get a blue hue.
         and the last one ("the neck") gets marked specially */
         let blue;
-        if (i < snake_head_size-1) blue = 80;
-        else if (i == snake_head_size-1) blue = 180;
+        if (i < snake_head_size - 1) blue = 80;
+        else if (i == snake_head_size - 1) blue = 180;
         else blue = 0;
-        drawPoint(snake[i], NODE_ANGLE, 120, blue);
+        snakeDrawList.push({
+            index: i,
+            proj: proj,
+            blue: blue,
+            red: 120
+        });
     }
 
-    drawPoint(pellet, NODE_ANGLE, 0);
+    // Pellet projection
+    var pelletProj = projectTorusPoint(pellet.u, pellet.v, headPos, headFrame);
 
-    // Draw angle.
+    // 2. Draw far snake nodes and far pellet
+    for (var i = 0; i < snakeDrawList.length; i++) {
+        var item = snakeDrawList[i];
+        if (item.proj.dotNorm <= 0) {
+            drawNodePoint(item.proj, NODE_RADIUS, item.red, item.blue, 0.45);
+        }
+    }
+    if (pelletProj.dotNorm <= 0) {
+        drawNodePoint(pelletProj, NODE_RADIUS, 0, 0, 0.45);
+    }
+
+    // 3. Draw near background dots
+    for (var i = 0; i < nearDots.length; i++) {
+        var d = nearDots[i];
+        var alpha = Math.max(0.18, 0.85 - d.depth / 7.0);
+        var r = Math.max(1.0, focalLength * (0.0045 / d.depth));
+        var depthColor = Math.floor(Math.max(20, 200 - (d.depth / 6.0) * 180));
+        ctx.fillStyle = "rgba(" + depthColor + ", " + depthColor + ", " + (depthColor + 30) + ", " + alpha + ")";
+        ctx.beginPath();
+        ctx.arc(d.sx, d.sy, r, 0, Math.PI * 2);
+        ctx.fill();
+    }
+
+    // 4. Draw near snake nodes sorted by depth (furthest near-side first, head last)
+    var nearSnake = [];
+    for (var i = 0; i < snakeDrawList.length; i++) {
+        if (snakeDrawList[i].proj.dotNorm > 0) nearSnake.push(snakeDrawList[i]);
+    }
+    nearSnake.sort(function(a, b) { return b.proj.depth - a.proj.depth; });
+    for (var i = 0; i < nearSnake.length; i++) {
+        var item = nearSnake[i];
+        drawNodePoint(item.proj, NODE_RADIUS, item.red, item.blue, 1.0);
+    }
+
+    // 5. Draw near pellet
+    if (pelletProj.dotNorm > 0) {
+        drawNodePoint(pelletProj, NODE_RADIUS, 0, 0, 1.0);
+    }
+
+    // 6. Draw angle & direction arrows
     renderAngleDir(direction);
-    //draw "next" toggle/untoggle original-Direction angle
+    // draw "next" toggle/untoggle original-Direction angle
     if (toggledTheDir) {
         var color = "#48E56C"; //green
         renderAngleDir(orDir, color);
-        var r = NODE_ANGLE / 2 * focalLength * 2.2;
+        var r = (NODE_RADIUS * focalLength / cameraDistance) * 2.2;
         ctx.beginPath();
         ctx.arc(
             centerX + Math.cos(direction) * r,
@@ -452,7 +592,7 @@ function render() {
     } else {
         var color = "#FF7851"; //red
         renderAngleDir(orDir, color);
-        var r = NODE_ANGLE / 2 * focalLength * 2.2;
+        var r = (NODE_RADIUS * focalLength / cameraDistance) * 2.2;
         ctx.beginPath();
         ctx.arc(
             centerX + Math.cos(orDir) * r,
@@ -462,84 +602,47 @@ function render() {
         ctx.lineWidth = 1;
         ctx.fill();
     }
-
-    ctx.lineWidth = 1;
-    // Draw circle.
-    ctx.beginPath();
-    ctx.strokeStyle = "rgb(10,10, 10)";
-
-    // The radius value was determined experimentally; and then further tweaked manually.
-    ctx.arc(centerX, centerY, .548 * focalLength, 0, Math.PI * 2);
-    ctx.stroke();
-
-    ctx.strokeStyle = "#AAA";
-    ctx.beginPath();
-    ctx.setLineDash([1,7]);
-    ctx.arc(centerX, centerY, .6000007 * focalLength, 0, Math.PI * 2);
-    ctx.stroke();
-    ctx.setLineDash([]);
-}
-
-// If pt is not provided, rotate all points.
-function rotateZ(a, pt) {
-    // Compute necessary rotation matrix.
-    var cosA = Math.cos(a),
-        sinA = Math.sin(a);
-
-    var inPoints = [pt];
-    if (!pt) inPoints = allPoints();
-    for(var i = 0; i < inPoints.length; i++) {
-        if (!inPoints[i]) continue;
-        var x = inPoints[i].x,
-            y = inPoints[i].y;
-        inPoints[i].x = cosA * x - sinA * y;
-        inPoints[i].y = sinA * x + cosA * y;
-    }
-}
-
-function rotateY(a, pt) {
-    // Compute necessary rotation matrix.
-    var cosA = Math.cos(a),
-        sinA = Math.sin(a);
-
-    var inPoints = [pt];
-    if (!pt) inPoints = allPoints();
-
-    for(var i = 0; i < inPoints.length; i++) {
-        if (!inPoints[i]) continue;
-        var x = inPoints[i].x,
-            z = inPoints[i].z;
-        inPoints[i].x = cosA * x + sinA * z;
-        inPoints[i].z = - sinA * x + cosA * z;
-    }
 }
 
 function applySnakeRotation() {
-    var nextPosition = null;
+    var head = snake[0];
+    var cosD = Math.cos(direction);
+    var sinD = Math.sin(direction);
+
+    // Torus metric: ds^2 = (R + r*cos(v))^2 du^2 + r^2 dv^2
+    var du = (snakeVelocity * cosD) / (TORUS_R + TORUS_r * Math.cos(head.v));
+    var dv = (snakeVelocity * sinD) / TORUS_r;
+
+    var newU = (head.u + du) % (Math.PI * 2);
+    if (newU < 0) newU += Math.PI * 2;
+    var newV = (head.v + dv) % (Math.PI * 2);
+    if (newV < 0) newV += Math.PI * 2;
+
+    var nextPos = null;
     for (var i = 0; i < snake.length; i++) {
-        var oldPosition = copyPoint(snake[i]); 
-        if (i == 0) {
-            // Move head in current direction.
-            rotateZ(-direction, snake[i]);
-            rotateY(snakeVelocity, snake[i]);
-            rotateZ(direction, snake[i]);
-        } else if (nextPosition === null) {
-            // History isn't available yet.
-            rotateZ(-STARTING_DIRECTION, snake[i]);
-            rotateY(snakeVelocity, snake[i]);
-            rotateZ(STARTING_DIRECTION, snake[i]);
-        } else {
-            copyPoint(nextPosition, snake[i]);
+        var oldPos = { u: snake[i].u, v: snake[i].v };
+        if (i === 0) {
+            snake[0].u = newU;
+            snake[0].v = newV;
+        } else if (nextPos !== null) {
+            snake[i].u = nextPos.u;
+            snake[i].v = nextPos.v;
         }
 
-        snake[i].posQueue.unshift(oldPosition);
-        nextPosition = snake[i].posQueue.pop();
+        snake[i].posQueue.unshift(oldPos);
+        nextPos = snake[i].posQueue.pop();
     }
 }
 
-function collision(a,b) {
-    var dist = Math.sqrt(Math.pow(a.x - b.x, 2) + Math.pow(a.y - b.y, 2) + Math.pow(a.z - b.z, 2));
-    return dist < collisionDistance; 
+function collision(a, b) {
+    var pA = torusPoint(a.u, a.v);
+    var pB = torusPoint(b.u, b.v);
+    var dist = Math.sqrt(
+        Math.pow(pA.x - pB.x, 2) +
+        Math.pow(pA.y - pB.y, 2) +
+        Math.pow(pA.z - pB.z, 2)
+    );
+    return dist < collisionDistance;
 }
 
 function checkCollisions(skip = 6) {
