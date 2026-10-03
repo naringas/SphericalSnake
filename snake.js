@@ -27,9 +27,9 @@ const SPHERE_COLLISION_DISTANCE = 1.999999900005 * Math.sin(SPHERE_NODE_ANGLE);
 const SPHERE_FOCAL_LENGTH = 500;
 
 // Torus geometry parameters (from 3D Torus version)
-const TORUS_R = 1.0;
-const TORUS_r = 0.5;
-const TORUS_NODE_RADIUS = 0.054;
+const TORUS_R = 1.1;
+const TORUS_r = 0.8;
+const TORUS_NODE_RADIUS = 0.066;
 const TORUS_COLLISION_DISTANCE = 1.9 * TORUS_NODE_RADIUS;
 const TORUS_FOCAL_LENGTH = 550;
 const TORUS_CAMERA_DISTANCE = 3.2;
