@@ -20,6 +20,89 @@ var clock; // Absolute time since last update.
 var accumulatedDelta = 0; // How much delta time is built up.
 var animFrameId = null;
 
+// Minimap variables
+var minimapCnv, minimapCtx;
+const MINI_W = 240;
+const MINI_H = 240;
+var sphereWorldMatrix = [1, 0, 0, 0, 1, 0, 0, 0, 1];
+
+// 3D Matrix and Vector helpers for fixed-world tracking on S^2
+function mat3Mul(A, B) {
+    var C = new Array(9);
+    for (var r = 0; r < 3; r++) {
+        for (var c = 0; c < 3; c++) {
+            var s = 0;
+            for (var k = 0; k < 3; k++) {
+                s += A[r * 3 + k] * B[k * 3 + c];
+            }
+            C[r * 3 + c] = s;
+        }
+    }
+    return C;
+}
+
+function mat3Vec(M, v) {
+    return {
+        x: M[0] * v.x + M[1] * v.y + M[2] * v.z,
+        y: M[3] * v.x + M[4] * v.y + M[5] * v.z,
+        z: M[6] * v.x + M[7] * v.y + M[8] * v.z
+    };
+}
+
+function rotZMat(a) {
+    var cosA = Math.cos(a), sinA = Math.sin(a);
+    return [
+        cosA, -sinA, 0,
+        sinA,  cosA, 0,
+           0,     0, 1
+    ];
+}
+
+function rotYMat(a) {
+    var cosA = Math.cos(a), sinA = Math.sin(a);
+    return [
+        cosA, 0, sinA,
+           0, 1,    0,
+       -sinA, 0, cosA
+    ];
+}
+
+function orthonormalizeMat3(M) {
+    var len0 = Math.hypot(M[0], M[1], M[2]) || 1;
+    M[0] /= len0; M[1] /= len0; M[2] /= len0;
+
+    var dot01 = M[0] * M[3] + M[1] * M[4] + M[2] * M[5];
+    M[3] -= dot01 * M[0];
+    M[4] -= dot01 * M[1];
+    M[5] -= dot01 * M[2];
+    var len1 = Math.hypot(M[3], M[4], M[5]) || 1;
+    M[3] /= len1; M[4] /= len1; M[5] /= len1;
+
+    M[6] = M[1] * M[5] - M[2] * M[4];
+    M[7] = M[2] * M[3] - M[0] * M[5];
+    M[8] = M[0] * M[4] - M[1] * M[3];
+}
+
+function updateSphereWorldMatrix(dir, vel) {
+    // World rotates in camera space by R_step = Rz(dir) * Ry(-vel) * Rz(-dir)
+    // Inverse transformation from camera to fixed world is R_step_inv = Rz(dir) * Ry(vel) * Rz(-dir)
+    var rz = rotZMat(dir);
+    var ry = rotYMat(vel);
+    var rzNeg = rotZMat(-dir);
+    var stepInv = mat3Mul(rz, mat3Mul(ry, rzNeg));
+    sphereWorldMatrix = mat3Mul(sphereWorldMatrix, stepInv);
+    orthonormalizeMat3(sphereWorldMatrix);
+}
+
+function sphereToUV(v) {
+    var len = Math.hypot(v.x, v.y, v.z) || 1;
+    var z = Math.max(-1, Math.min(1, v.z / len));
+    var phi = Math.acos(z); // [0, pi], 0 = North Pole, pi = South Pole
+    var theta = Math.atan2(v.y, v.x); // [-pi, pi]
+    if (theta < 0) theta += Math.PI * 2; // [0, 2*pi)
+    return { theta: theta, phi: phi };
+}
+
 // Sphere geometry parameters (from classic Sphere version)
 const SPHERE_GAME_SIZE = 70;
 const SPHERE_NODE_ANGLE = Math.PI / SPHERE_GAME_SIZE;
@@ -29,7 +112,7 @@ const SPHERE_FOCAL_LENGTH = 500;
 // Torus geometry parameters (from 3D Torus version)
 const TORUS_R = 1.1;
 const TORUS_r = 0.8;
-const TORUS_NODE_RADIUS = 0.066;
+const TORUS_NODE_RADIUS = 0.056;
 const TORUS_COLLISION_DISTANCE = 1.9 * TORUS_NODE_RADIUS;
 const TORUS_FOCAL_LENGTH = 550;
 const TORUS_CAMERA_DISTANCE = 3.2;
@@ -322,6 +405,7 @@ function openStageSelect() {
     stageSelectOverlay.style.display = 'flex';
     document.getElementById('gg').style.display = 'none';
     document.getElementById('paused').style.display = 'none';
+    renderMinimap();
 }
 
 function updateScoreDisplay() {
@@ -807,9 +891,219 @@ function renderAngleDir(direction_, strokeStyle="#FFF") {
     ctx.stroke();
 }
 
+function renderMinimap() {
+    if (!minimapCtx) return;
+
+    // 1. Clear background
+    minimapCtx.fillStyle = "#090e17";
+    minimapCtx.fillRect(0, 0, MINI_W, MINI_H);
+
+    // 2. Reference coordinate axes (Equator / Prime Meridian or Torus u/v centerlines)
+    minimapCtx.strokeStyle = "rgba(56, 189, 248, 0.14)";
+    minimapCtx.lineWidth = 1;
+    minimapCtx.beginPath();
+    minimapCtx.moveTo(0, MINI_H / 2);
+    minimapCtx.lineTo(MINI_W, MINI_H / 2);
+    minimapCtx.moveTo(MINI_W / 2, 0);
+    minimapCtx.lineTo(MINI_W / 2, MINI_H);
+    minimapCtx.stroke();
+
+    // 3. Fixed World Dotted Grid
+    if (currentStage === 'sphere') {
+        var n = 52;
+        minimapCtx.fillStyle = "rgba(148, 163, 184, 0.32)";
+        for (var i = 0; i < n; i++) {
+            var gx = (i / n) * MINI_W;
+            for (var j = 1; j < n; j++) {
+                var gy = (j / n) * MINI_H;
+                minimapCtx.fillRect(gx - 0.75, gy - 0.75, 1.5, 1.5);
+            }
+        }
+    } else if (currentStage === 'torus') {
+        var nU = 60, nV = 32;
+        minimapCtx.fillStyle = "rgba(148, 163, 184, 0.32)";
+        for (var i = 0; i < nU; i++) {
+            var gx = (i / nU) * MINI_W;
+            for (var j = 0; j < nV; j++) {
+                var gy = (j / nV) * MINI_H;
+                minimapCtx.fillRect(gx - 0.75, gy - 0.75, 1.5, 1.5);
+            }
+        }
+    } else {
+        // Idle preview grid
+        minimapCtx.fillStyle = "rgba(148, 163, 184, 0.2)";
+        for (var i = 0; i <= 20; i++) {
+            for (var j = 0; j <= 20; j++) {
+                minimapCtx.fillRect((i / 20) * MINI_W - 0.75, (j / 20) * MINI_H - 0.75, 1.5, 1.5);
+            }
+        }
+        return;
+    }
+
+    // 4. Fixed World Pellet / Bead
+    if (pellet) {
+        var px, py;
+        if (currentStage === 'sphere') {
+            var pw = mat3Vec(sphereWorldMatrix, pellet);
+            var puv = sphereToUV(pw);
+            px = (puv.theta / (Math.PI * 2)) * MINI_W;
+            py = (puv.phi / Math.PI) * MINI_H;
+        } else {
+            var pu = ((pellet.u % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
+            var pv = ((pellet.v % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
+            px = (pu / (Math.PI * 2)) * MINI_W;
+            py = (pv / (Math.PI * 2)) * MINI_H;
+        }
+
+        // Pellet glow & bead
+        minimapCtx.fillStyle = "rgba(251, 191, 36, 0.35)";
+        minimapCtx.beginPath();
+        minimapCtx.arc(px, py, 6, 0, Math.PI * 2);
+        minimapCtx.fill();
+
+        minimapCtx.fillStyle = "#fbbf24";
+        minimapCtx.beginPath();
+        minimapCtx.arc(px, py, 3.5, 0, Math.PI * 2);
+        minimapCtx.fill();
+
+        minimapCtx.fillStyle = "#ffffff";
+        minimapCtx.beginPath();
+        minimapCtx.arc(px, py, 1.5, 0, Math.PI * 2);
+        minimapCtx.fill();
+    }
+
+    // 5. Moving Snake on the fixed surface
+    if (snake && snake.length > 0) {
+        var nodeCoords = [];
+        for (var k = 0; k < snake.length; k++) {
+            var nx, ny;
+            if (currentStage === 'sphere') {
+                var sw = mat3Vec(sphereWorldMatrix, snake[k]);
+                var suv = sphereToUV(sw);
+                nx = (suv.theta / (Math.PI * 2)) * MINI_W;
+                ny = (suv.phi / Math.PI) * MINI_H;
+            } else {
+                var su = ((snake[k].u % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
+                var sv = ((snake[k].v % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
+                nx = (su / (Math.PI * 2)) * MINI_W;
+                ny = (sv / (Math.PI * 2)) * MINI_H;
+            }
+            nodeCoords.push({ x: nx, y: ny });
+        }
+
+        // Connecting segments (only if not wrapping across boundary)
+        minimapCtx.strokeStyle = "rgba(239, 68, 68, 0.55)";
+        minimapCtx.lineWidth = 2.2;
+        minimapCtx.beginPath();
+        for (var k = nodeCoords.length - 1; k >= 1; k--) {
+            var a = nodeCoords[k];
+            var b = nodeCoords[k - 1];
+            if (Math.abs(a.x - b.x) < MINI_W * 0.4 && Math.abs(a.y - b.y) < MINI_H * 0.4) {
+                minimapCtx.moveTo(a.x, a.y);
+                minimapCtx.lineTo(b.x, b.y);
+            }
+        }
+        minimapCtx.stroke();
+
+        // Draw snake body nodes
+        for (var k = nodeCoords.length - 1; k >= 1; k--) {
+            var pt = nodeCoords[k];
+            var color, r;
+            if (k === snake_head_size - 1) {
+                color = "#06b6d4"; // Cyan neck pellet
+                r = 3.2;
+            } else if (k < snake_head_size - 1) {
+                color = "#60a5fa"; // Light blue head nodes
+                r = 2.8;
+            } else {
+                color = "#ef4444"; // Red body nodes
+                r = 2.4;
+            }
+            minimapCtx.fillStyle = color;
+            minimapCtx.beginPath();
+            minimapCtx.arc(pt.x, pt.y, r, 0, Math.PI * 2);
+            minimapCtx.fill();
+        }
+
+        // Draw Snake Head (node 0)
+        var headPt = nodeCoords[0];
+        minimapCtx.fillStyle = "rgba(56, 189, 248, 0.35)";
+        minimapCtx.beginPath();
+        minimapCtx.arc(headPt.x, headPt.y, 7.5, 0, Math.PI * 2);
+        minimapCtx.fill();
+
+        minimapCtx.fillStyle = "#38bdf8";
+        minimapCtx.beginPath();
+        minimapCtx.arc(headPt.x, headPt.y, 4.5, 0, Math.PI * 2);
+        minimapCtx.fill();
+
+        minimapCtx.fillStyle = "#ffffff";
+        minimapCtx.beginPath();
+        minimapCtx.arc(headPt.x, headPt.y, 2, 0, Math.PI * 2);
+        minimapCtx.fill();
+
+        // Head heading vector
+        var dirX = 0, dirY = 0;
+        if (currentStage === 'torus') {
+            var headNode = snake[0];
+            var du = Math.cos(direction) / (TORUS_R + TORUS_r * Math.cos(headNode.v));
+            var dv = Math.sin(direction) / TORUS_r;
+            var ddx = (du / (Math.PI * 2)) * MINI_W;
+            var ddy = (dv / (Math.PI * 2)) * MINI_H;
+            var dlen = Math.hypot(ddx, ddy) || 1;
+            dirX = ddx / dlen;
+            dirY = ddy / dlen;
+        } else {
+            // Sphere heading: project forward step
+            var forwardCam = {
+                x: Math.cos(direction) * Math.sin(snakeVelocity * 2),
+                y: -Math.sin(direction) * Math.sin(snakeVelocity * 2),
+                z: -Math.cos(snakeVelocity * 2)
+            };
+            var forwardWorld = mat3Vec(sphereWorldMatrix, forwardCam);
+            var fUV = sphereToUV(forwardWorld);
+            var fx = (fUV.theta / (Math.PI * 2)) * MINI_W;
+            var fy = (fUV.phi / Math.PI) * MINI_H;
+            var ddx = fx - headPt.x;
+            var ddy = fy - headPt.y;
+            if (ddx > MINI_W / 2) ddx -= MINI_W;
+            if (ddx < -MINI_W / 2) ddx += MINI_W;
+            if (ddy > MINI_H / 2) ddy -= MINI_H;
+            if (ddy < -MINI_H / 2) ddy += MINI_H;
+            var dlen = Math.hypot(ddx, ddy) || 1;
+            dirX = ddx / dlen;
+            dirY = ddy / dlen;
+        }
+
+        minimapCtx.strokeStyle = "#38bdf8";
+        minimapCtx.lineWidth = 2.2;
+        minimapCtx.beginPath();
+        minimapCtx.moveTo(headPt.x, headPt.y);
+        minimapCtx.lineTo(headPt.x + dirX * 9, headPt.y + dirY * 9);
+        minimapCtx.stroke();
+
+        // Update minimap coordinates HUD
+        var coordsEl = document.getElementById("minimap_coords");
+        if (coordsEl) {
+            if (currentStage === 'sphere') {
+                var swHead = mat3Vec(sphereWorldMatrix, snake[0]);
+                var suvHead = sphereToUV(swHead);
+                var degTheta = (suvHead.theta * 180 / Math.PI).toFixed(0);
+                var degPhi = (suvHead.phi * 180 / Math.PI).toFixed(0);
+                coordsEl.innerText = "Head: θ " + degTheta + "°, φ " + degPhi + "°";
+            } else {
+                var uVal = snake[0].u.toFixed(2);
+                var vVal = snake[0].v.toFixed(2);
+                coordsEl.innerText = "Head: u " + uVal + ", v " + vVal;
+            }
+        }
+    }
+}
+
 function render() {
     if (currentStage === 'sphere') renderSphere();
     else if (currentStage === 'torus') renderTorus();
+    renderMinimap();
 }
 
 function checkCollisions(skip = 6) {
@@ -872,6 +1166,7 @@ function update() {
             rotateZ(-direction);
             rotateY(-snakeVelocity);
             rotateZ(direction);
+            updateSphereWorldMatrix(direction, snakeVelocity);
         } else {
             applySnakeRotationTorus();
         }
@@ -914,6 +1209,12 @@ function startGame(stage) {
 
     window.removeEventListener('keydown', handlePAUSE);
     window.addEventListener('keydown', handlePAUSE);
+
+    sphereWorldMatrix = [1, 0, 0, 0, 1, 0, 0, 0, 1];
+    var badge = document.getElementById("minimap_badge");
+    if (badge) {
+        badge.innerText = (stage === 'sphere') ? "🌐 S² SPHERE" : "🍩 T² TORUS";
+    }
 
     if (currentStage === 'sphere') {
         focalLength = SPHERE_FOCAL_LENGTH;
@@ -1013,12 +1314,17 @@ function startGame(stage) {
 
 // Initial page setup: ready canvas and show stage select screen
 function init() {
-    cnv = document.getElementsByTagName('canvas')[0];
+    cnv = document.getElementById('main_canvas') || document.getElementsByTagName('canvas')[0];
     ctx = cnv.getContext('2d');
     width = cnv.width;
     height = cnv.height;
     centerX = width / 2;
     centerY = height / 2;
+
+    minimapCnv = document.getElementById('minimap_canvas');
+    if (minimapCnv) {
+        minimapCtx = minimapCnv.getContext('2d');
+    }
 
     // Draw idle aesthetic background on canvas
     ctx.fillStyle = "#0c1524";
